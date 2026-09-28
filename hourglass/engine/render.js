@@ -366,6 +366,20 @@
       }
     }
 
+    /** A sprite drawn flat across the view, centred, its top at row y (hands on a ledge). */
+    overlay(buf, spr, y, light) {
+      if (!spr) return;
+      const W = this.w, VH = this.viewH, scale = Math.max(1, Math.round(VH / 150));
+      const fr = spr.frames[0], sw = spr.w * scale, sh = spr.h * scale;
+      const x0 = Math.round((W - sw) / 2), set = this.pal.shades[0], base = (spr.emissive ? 31 : light) * 256;
+      for (let c = Math.max(0, x0); c < Math.min(W, x0 + sw); c++) {
+        const u = ((c - x0) / scale) | 0;
+        for (let r = Math.max(0, y); r < Math.min(VH, y + sh); r++) {
+          const texel = fr[u * spr.h + (((r - y) / scale) | 0)];
+          if (texel !== 255) buf[r * W + c] = set[base + texel];
+        }
+      }
+    }
     /** First-person held item, anchored bottom-right of the 3D view. */
     held(buf, spr, bobX, bobY, light) {
       if (!spr) return;

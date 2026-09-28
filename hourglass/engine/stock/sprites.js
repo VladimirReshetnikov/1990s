@@ -415,6 +415,20 @@
   S('SPARKS', { w: 24, h: 24, scale: 1.3, frames: 2, fps: 14, emissive: true, gen(p, c) { const r = U.rng(9 + c.frame); for (let i = 0; i < 8; i++) { const x = r() * 24, y = r() * 24; p.line(12, 12, x, y, '#a0d0ff'); } p.disc(12, 12, 2, '#ffffff'); } });
 
   // ------------------------------------------------------------ held
+  // two hands gripping a ledge lip, seen from below (drawn at the top of the view while hanging)
+  S('HANDS_GRIP', {
+    w: 96, h: 30, scale: 1,
+    gen(p) {
+      const skin = '#b87a54', dark = R.hex(skin).map(v => v * 0.62), hi = R.hex(skin).map(v => v * 1.18), sleeve = '#6a1a14';
+      for (const cx of [26, 70]) {
+        p.rect(cx - 9, 16, 18, 14, sleeve); p.rect(cx - 9, 16, 18, 2, R.hex(sleeve).map(v => v * 1.4));
+        p.ellipse(cx, 11, 12, 7, skin);
+        for (let f = -1.5; f <= 1.5; f += 1) { const x = cx + f * 5.5; p.ellipse(x, 5, 2.8, 5, skin); p.line(x - 2, 1, x + 2, 1, dark); p.px(x - 1, 3, hi); }
+        p.ellipse(cx + (cx < 48 ? 11 : -11), 12, 3, 5, skin);
+        p.line(cx - 10, 15, cx + 10, 15, dark);
+      }
+    },
+  });
   S('HELD_LANTERN', {
     w: 64, h: 88, scale: 1, emissive: true,
     gen(p) {

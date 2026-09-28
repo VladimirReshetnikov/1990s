@@ -405,6 +405,7 @@
       else {
         this.renderer.render(buf, g.world, cam, g.time);
         this.renderer.sprites(buf, g.spriteList(this.bank, this.renderer.frameNo), cam);
+        this.drawHands(buf);
         if (this.flashA > 0) this.renderer.tint(buf, this.flashRGB, Math.min(0.6, this.flashA));
         if (this.state === 'dead' || this.state === 'timeup') this.renderer.tint(buf, [120, 0, 0], Math.min(0.55, ((this.deadT || this.timeupT) || 0) * 0.5));
       }
@@ -431,6 +432,21 @@
       } else if (this.state === 'won') this.drawWon();
     }
 
+    /** Aladdin's hands on the lip while hanging, lowering, catching or pulling up. */
+    drawHands(buf) {
+      const p = this.game.player, a = p.act;
+      if (!a || this.state !== 'play' || !this.bank.spr) return;
+      let k = 0; // 0 = hidden above the view, 1 = fully in view
+      if (a.kind === 'hang') k = 1;
+      else if (a.kind === 'lower') k = Math.max(0, (a.t / a.dur - 0.3) / 0.7);
+      else if (a.kind === 'climb') { const f = a.t / a.dur; k = f < 0.15 ? f / 0.15 : f < 0.55 ? 1 : Math.max(0, 1 - (f - 0.55) / 0.3); }
+      if (k <= 0) return;
+      let spr;
+      try { spr = this.bank.sprite('HANDS_GRIP'); } catch (e) { return; }
+      const scale = Math.max(1, Math.round(this.viewH / 150)), h = spr.h * scale;
+      const c = this.game.cellAt(p.x, p.y), s = c && R.spanAt(c, p.z + 0.3);
+      this.renderer.overlay(buf, spr, Math.round(-h + h * U.smooth(Math.min(1, k)) - 2 * scale), Math.min(31, (s ? s.light : 16) + 4));
+    }
     /** A small prompt above the status bar: what Space / walking on would do here. */
     drawHint(hint) {
       const ui = this.ui, s = this.uiScale, W = this.W;
