@@ -7,6 +7,7 @@ Open the game's `index.html` in a browser, or serve this folder with
 | Folder | Game |
 | --- | --- |
 | [`hollowmere/`](hollowmere/) | **Hollowmere** — Doom-style first-person adventure in a haunted astronomer's manor (plus the *Blackwater Light* variation). See its README for controls and for creating variations. |
+| [`hourglass/`](hourglass/) | **Hourglass** — first-person platform adventure in the spirit of *Prince of Persia*'s dungeons, in real 3-D: Aladdin escapes the Vizier's dungeon by running, jumping, climbing and hanging past loose floors, spikes, slicers and timed gates. |
 
 ## License
 
