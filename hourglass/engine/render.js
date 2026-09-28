@@ -10,7 +10,8 @@
  * Thin masked walls sit on a cell's mid-plane, across the corridor: see-through
  * portcullis bars (door.see) and slicer jaws (span.blade). They are collected
  * while tracing a column and drawn far-to-near over it afterwards. The top edge
- * of every ledge face gets a bright lip so drops read at a glance.
+ * of every ledge face gets a bright lip, and so does the floor's edge above a
+ * drop (a 4-texel coping band), so drops read at a glance.
  */
 (function (R) {
   'use strict';
@@ -33,6 +34,29 @@
       this.mkU = new Int32Array(MAXTHIN); this.mkL = new Int32Array(MAXTHIN); this.mkLo = new Float64Array(MAXTHIN); this.mkHi = new Float64Array(MAXTHIN);
       this.mkData = new Array(MAXTHIN); this.mkTex = new Array(MAXTHIN); this.mkSet = new Array(MAXTHIN); this.mkStretch = new Uint8Array(MAXTHIN);
       this.nm = 0;
+    }
+    /**
+     * Sides of span s's floor that end in a drop (bits: 1 east, 2 west, 4 south, 8 north),
+     * cached until world.edgeEpoch changes (floors fall, lifts move).
+     */
+    edgeMask(world, s) {
+      const ep = world.edgeEpoch || 0;
+      if (s.edgeEp === ep) return s.edgeBits;
+      const c = s.cell, f = s.fl;
+      let bits = 0;
+      const dirs = [[1, 0, 1], [-1, 0, 2], [0, 1, 4], [0, -1, 8]];
+      for (const [dx, dy, bit] of dirs) {
+        const n = world.cellAt(c.x + dx, c.y + dy);
+        if (!n) continue;
+        let open = false, level = false;
+        for (const q of n.spans) {
+          if (q.fl < f + 0.5 && Math.max(q.cl, q.door ? q.doorTop : 0) > f + 0.3) open = true;
+          if (Math.abs(q.fl - f) <= 0.35 && q.cl > f + 0.3) level = true;
+        }
+        if (open && !level) bits |= bit;
+      }
+      s.edgeEp = ep; s.edgeBits = bits;
+      return bits;
     }
     /** Which mid-plane a thin wall in span s lies on: 'x' (x = const) or 'y'. Across the corridor. */
     thinAxis(world, s) {
@@ -133,10 +157,13 @@
               if (ys < t) ys = t;
               if (ys < b) {
                 const tx0 = tex[S.ftex], data = tx0.data, em = tx0.emissive, hgt = eye - S.fl;
+                const edge = S.hazard ? 0 : this.edgeMask(world, S);
                 for (let r = ys; r < b; r++) {
                   const rd = hgt * proj / (r + 0.5 - hz);
                   const tx = ((px + rdx * rd) * 64) & 63, ty = ((py + rdy * rd) * 64) & 63;
-                  buf[r * W + col] = set[(em ? 31 : lightAt(Ls, rd)) * 256 + data[(tx << 6) | ty]];
+                  let L = em ? 31 : lightAt(Ls, rd);
+                  if (edge && (((edge & 1) && tx >= 60) || ((edge & 2) && tx < 4) || ((edge & 4) && ty >= 60) || ((edge & 8) && ty < 4))) L = L + 9 > 31 ? 31 : L + 9;
+                  buf[r * W + col] = set[L * 256 + data[(tx << 6) | ty]];
                   zb[r * W + col] = rd;
                 }
                 b = ys;

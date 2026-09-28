@@ -98,6 +98,7 @@
         if (sp.loose) this.spansWith.loose.push(sp);
         if (sp.plate) this.spansWith.plate.push(sp);
       }
+      this.hasBob = this.spansWith.anim.some(s => s.anim.type === 'bob');
       this.spawnEntities();
       this.cp = { x: s.x, y: s.y, z: s.z, ang: s.ang, nEvents: 0, inv: Object.assign({}, this.inv), persist: JSON.parse(JSON.stringify(this.persist)), maxLife: this.player.maxLife };
       if (lv.onStart && !opts.respawn) this.runScript(lv.onStart, {});
@@ -379,6 +380,7 @@
         }
         if (done) { m.finished = true; if (m.then) this.runScript(m.then, {}); }
       }
+      this.world.edgeEpoch = (this.world.edgeEpoch || 0) + 1;
       if (this.movers.some(m => m.finished)) this.movers = this.movers.filter(m => !m.finished);
     }
 
@@ -422,6 +424,7 @@
       if (!instant) this.sound('crumble', x, y, 1, z0);
       this.spansWith.loose = this.spansWith.loose.filter(q => q !== s);
       c.spans.forEach((q, k) => { q.index = k; });
+      this.world.edgeEpoch = (this.world.edgeEpoch || 0) + 1;
     }
     updatePlates(feet) {
       const p = this.player;
@@ -534,6 +537,7 @@
       const p = this.player;
       this.time += dt;
       if (!this.won && !this.levelDone) this.persist.clock += dt;
+      if (this.hasBob) this.world.edgeEpoch = (this.world.edgeEpoch || 0) + 1;
       for (const s of this.spansWith.anim) {
         R.cellAnims.get(s.anim.type).update(s, this.time, this);
         if (s.anim.justSlammed) this.sound('crush', s.cell.x + 0.5, s.cell.y + 0.5, 0.8, s.fl);
