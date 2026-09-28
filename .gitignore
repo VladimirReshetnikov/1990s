@@ -1,0 +1,49 @@
+# --- Operating systems
+.DS_Store
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- Editors and IDEs
+.vscode/
+.idea/
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# --- Claude Code (shared project config such as .claude/launch.json stays tracked)
+.claude/settings.local.json
+.claude/worktrees/
+
+# --- Node.js (for any future tooling)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.eslintcache
+
+# --- Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Build output, coverage and caches
+dist/
+build/
+out/
+coverage/
+.cache/
+
+# --- Logs, temporary files and local secrets
+*.log
+*.tmp
+*.temp
+*.bak
+.env
+.env.*
