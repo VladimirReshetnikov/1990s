@@ -211,7 +211,7 @@
     sprite(e) { return e.stage === 'dust' ? 'DUST' : e.stage === 'fall' ? 'ROCK' : e.stage === 'rubble' ? 'RUBBLE' : null; },
   });
 
-  /** A loose floor tile falling to the level below. */
+  /** A loose floor tile falling to the level below (it hurts whoever stands under it, never its rider). */
   T.register('fallingTile', {
     init(e) { e.free = true; e.z = e.z0; e.vz = 0; e.radius = 0.4; e.height = 0.3; e.sprite = e.spec.sprite || 'LOOSE_TILE'; },
     update(e, g, dt) {
@@ -223,7 +223,7 @@
         e.sprite = 'RUBBLE'; e.free = false; e.z0 = e.spec.landZ;
         g.sound('crash', e.x, e.y, 1, e.z);
         const p = g.player;
-        if (Math.hypot(p.x - e.x, p.y - e.y) < 0.6 && Math.abs(p.z - e.z) < 0.4) g.hurt(1, null, null, 'Hit by falling masonry!');
+        if (!e.spec.rider && Math.hypot(p.x - e.x, p.y - e.y) < 0.6 && Math.abs(p.z - e.z) < 0.4) g.hurt(1, null, null, 'Hit by falling masonry!');
       }
     },
   });

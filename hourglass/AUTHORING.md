@@ -6,10 +6,15 @@ is listed (after `game/campaign.js`) in `index.html`. Levels are played in
 
 ```bash
 node tools/verify.js <levelId>          # solve it with the moves contract; lints
+node tools/replay.js <levelId>          # perform the solver's route move by move in the real engine (--all: every move)
 node tools/snap.js out.png --level <levelId> --x 5.5 --y 3.5 --z 1.5 --ang E --pitch -20
 node tools/snap.js map.png --level <levelId> --map --zoom 8 --x 10.5 --y 5.5 --z 1.5   # automap of that storey
 node tools/physics.js                   # the moves contract itself (engine changes only)
 ```
+
+`tools/README.md` documents every tool. A level is done when `verify.js` finds
+the exit and `replay.js` replays its route with no FAIL; `replay.js --all`
+also shows moves the solver believes in that the route does not use.
 
 Open the game at `http://localhost:8642/hourglass/` (the `games` server in
 `.claude/launch.json`); cheats: type `NEXTLEVEL`, `OPENSESAME`, `SANDMAN`

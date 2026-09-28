@@ -177,13 +177,14 @@ console.log('falls');
 }
 
 // ---------------------------------------------------------------- loose floors
-function looseTest(ctl) {
+function looseTest(ctl, setup) {
   const W = 16;
   const lv = level(W, 5, [
     [0, (x, y) => !inCorr(x, y, W) ? '#' : '.'],
     [1.5, (x, y) => !inCorr(x, y, W) ? '#' : x === 7 ? 'o' : x === 2 && y === 2 ? '@' : '.'],
   ]);
   const g = game(lv);
+  if (setup) setup(g);
   run(g, 7, ctl);
   run(g, 1.5);
   return g.player;
@@ -191,13 +192,40 @@ function looseTest(ctl) {
 console.log('loose floors');
 {
   const stop = looseTest(g => (g.player.x < 7.5 ? { fwd: 1 } : {}));
-  check('stop on a loose floor: it drops you a storey', stop.alive && stop.z < 0.05, `z=${f2(stop.z)}`);
+  check('stop on a loose floor: it drops you a storey, unhurt', stop.alive && stop.z < 0.05 && stop.life === 3, `z=${f2(stop.z)} life=${stop.life}`);
   const walk = looseTest(() => ({ fwd: 1 }));
   check('walk across a loose floor: you make it', walk.alive && walk.z > 1.45 && walk.x > 9, `z=${f2(walk.z)} x=${f2(walk.x)}`);
   const runx = looseTest(() => ({ fwd: 1, run: true }));
   check('run across a loose floor: you make it', runx.alive && runx.z > 1.45, `z=${f2(runx.z)}`);
   const care = looseTest(() => ({ fwd: 1, careful: true }));
-  check('careful step onto a loose floor: it drops you', care.alive && care.z < 0.05, `z=${f2(care.z)}`);
+  check('careful step onto a loose floor: it drops you, unhurt', care.alive && care.z < 0.05 && care.life === 3, `z=${f2(care.z)} life=${care.life}`);
+  const under = looseTest(() => ({}), g => { g.teleport(7.5, 2.5, 0); g.triggerLoose(g.world.cellAt(7, 2).spans[1]); });
+  check('standing under a falling loose floor: it hurts', under.alive && under.life === 2, `life=${under.life}`);
+  // a slow loose tile at the lip of a one-storey drop: careful to its edge, then...
+  const lipLevel = level(16, 5, [
+    [0, (x, y) => !inCorr(x, y, 16) ? '#' : '.'],
+    [1.5, (x, y) => !inCorr(x, y, 16) ? '#' : x === 7 ? 'o' : x >= 8 ? '_' : x === 2 && y === 2 ? '@' : '.'],
+  ], { 'o': { base: '.', loose: { delay: 1.5 }, ftex: 'LOOSE_FLAT' } });
+  const lip = then => {
+    const g = game(lipLevel), p = g.player, tile = g.world.cellAt(7, 2).spans[1];
+    g.teleport(7.5, 2.5, 1.5, 0);
+    let hung = false, stage = 0;
+    run(g, 4, (g, t) => {
+      if (p.act && p.act.kind === 'hang') hung = true;
+      if (stage === 0) { if (p.edgeStop) stage = 1; return { careful: true, fwd: 1 }; }
+      if (then === 'gone') {                         // the floor goes, and Forward again on the very next tick
+        if (stage === 1) { stage = 2; return { careful: true }; }
+        if (stage === 2) { stage = 3; g.dropFloor(tile, true); return { careful: true, fwd: 1 }; }
+        return { careful: true, fwd: Math.floor(t * 20) % 2 };
+      }
+      return { careful: true, fwd: stage++ === 2 ? 1 : 0 };                                       // Forward again at once: hang
+    });
+    return { p, hung };
+  };
+  const air = lip('gone');
+  check('the floor falls from under a careful stop: Forward cannot hang from thin air', !air.hung && air.p.alive && air.p.z < 0.05, `hung=${air.hung} z=${f2(air.p.z)}`);
+  const hang = lip('hang');
+  check('hanging from a loose floor when it falls: you drop', hang.hung && !hang.p.act && hang.p.alive && hang.p.z < 0.05, `hung=${hang.hung} act=${hang.p.act ? hang.p.act.kind : '-'} z=${f2(hang.p.z)}`);
 }
 
 // ---------------------------------------------------------------- plate & gate
