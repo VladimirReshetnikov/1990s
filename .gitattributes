@@ -1,0 +1,27 @@
+# Store and check out all text files with LF line endings, regardless of the
+# local core.autocrlf setting.
+* text=auto eol=lf
+
+# Windows batch files must keep CRLF to run correctly.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets (never diffed or converted).
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.bmp   binary
+*.ico   binary
+*.webp  binary
+*.wav   binary
+*.mp3   binary
+*.ogg   binary
+*.flac  binary
+*.mid   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.zip   binary
+*.pdf   binary
