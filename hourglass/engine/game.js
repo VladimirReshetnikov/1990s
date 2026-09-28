@@ -1,14 +1,29 @@
 /*
  * Game rules for Hourglass (fork of RetroEngine's game.js): a sequence of
  * layered 3-D levels with platforming physics — run, jump, climb onto ledges,
- * careful steps, hang-and-drop — plus loose floors, pressure plates, timed
- * gates, levers, life triangles, checkpoints and level progression.
+ * catch ledges in mid-air, careful steps, hanging from edges — plus loose
+ * floors, pressure plates, timed gates, levers, life triangles, checkpoints
+ * that restore the world as it was, and level progression.
  *
- * All the movement numbers live in R.GAME_DEFAULTS; tools/physics.js checks
- * that they deliver the abilities that tools/verify.js assumes.
+ * THE MOVES CONTRACT (R.GAME_DEFAULTS at the fixed 120 Hz step; storeys are
+ * 1.5 apart; proven two-sided by tools/physics.js, assumed by tools/verify.js):
+ *   same level:  standing jump lands a 1-cell gap, never 2 · running jump lands 2,
+ *                catches the lip of 3, never crosses 4
+ *   down 1 storey: standing makes 2 · running lands 3, catches 4, never 5
+ *   up:          climb a ledge 0.35..1.75 above the feet (one storey) from a stand ·
+ *                in the air, catch a lip 0.10..0.90 above the feet
+ *   falls:       measured from the last floor (never the jump apex): ≤ 2.3 safe,
+ *                ≤ 3.8 cost a life, more kill · hanging lowers the feet 0.9
+ * Support (ledges, loose floors, careful stops) uses a narrow foot circle;
+ * walls and ceilings use the body circle.
  *
- * Scripts (campaign.scripts[name](g, ctx)) receive this Game. API:
- *   g.msg(text) g.dialog(title, text) g.sound(name, x?, y?, z?) g.flash(rgb, a) g.shake(t)
+ * Space: hanging → pull up; a ledge ahead → climb; Forward held → jump (a running
+ * jump waits for the edge); otherwise a straight-up jump.
+ * C (held): careful step, stops at edges. At an edge press Forward again to
+ * lower yourself into a hang; while hanging keep C held; let go (or Back) to drop.
+ *
+ * Scripts (campaign/level scripts[name](g, ctx)) receive this Game. API:
+ *   g.msg(text) g.dialog(title, text) g.sound(name, x?, y?, vol?, z?) g.flash(rgb, a) g.shake(t)
  *   g.has(item) g.give(item) g.take(item) g.flag(name, value?) g.after(secs, fn)
  *   g.openDoor(tag, holdSecs?) g.closeDoor(tag) g.moveSpans(tag, 'fl'|'cl', target, speed, then?)
  *   g.setTex(tag, prop, tex) g.setSpans(tag, props) g.entities(tag) g.remove(e) g.spawn(spec)
@@ -19,15 +34,18 @@
   const U = R.util;
 
   R.GAME_DEFAULTS = {
-    eyeHeight: 0.5, height: 0.62, radius: 0.24, stepUp: 0.35,
-    walkSpeed: 2.2, runSpeed: 4.4, carefulSpeed: 1.1, turnSpeed: 2.6, accel: 12, airControl: 0.25,
-    gravity: 13, jumpV: 4.2, standJumpPush: 2.6, coyote: 0.1, jumpBuffer: 0.15,
-    climbMin: 0.35, climbMax: 2.1, airGrabLow: -0.3, airGrabHigh: 1.35, climbTimePerUnit: 0.32, climbTimeMin: 0.35,
-    hangDrop: 1.1, fallSafe: 2.3, fallHurt: 4.4,
-    maxLife: 3, lifeCap: 6, invuln: 1.0, knock: 5, useRange: 1.35,
-    lookMax: 55, respawnInvuln: 1.5,
+    eyeHeight: 0.5, height: 0.62, radius: 0.24, footRadius: 0.1, stepUp: 0.35, airStepUp: 0.1,
+    walkSpeed: 2.2, runSpeed: 4.2, carefulSpeed: 1.1, turnSpeed: 2.6, accel: 8, brake: 12, airControl: 0.25,
+    gravity: 13, jumpV: 3.6, standJumpPush: 2.1, coyote: 0.06, jumpBuffer: 0.15, edgeSnap: 0.9, snapWait: 0.25,
+    climbMin: 0.35, climbMax: 1.75, climbReach: 0.4, climbTime: 0.9, catchLow: 0.1, catchHigh: 0.9,
+    hangDepth: 0.9, hangOut: 0.3, lowerTime: 0.5, pullTime: 0.6, upReach: 1.4,
+    fallSafe: 2.3, fallHurt: 3.8, looseDelay: 0.7,
+    maxLife: 3, lifeCap: 6, invuln: 1.0, knock: 3.5, useRange: 1.35, drinkRange: 1.0,
+    lookMax: 80, respawnInvuln: 1.5, turnAroundTime: 0.3, magnet: 0.12,
     baseLight: null,
   };
+  R.PHYSICS_DT = 1 / 120;
+  const DRINKS = ['life', 'bigLife', 'poison'];
 
   class Game {
     constructor(camp, hooks = {}) {
@@ -39,15 +57,17 @@
       this.hazardDefs = {};
       for (const n of R.hazards.names()) this.hazardDefs[n] = Object.assign({}, R.hazards.get(n));
       for (const [n, h] of Object.entries(camp.hazards || {})) this.hazardDefs[n] = Object.assign({}, this.hazardDefs[n] || {}, h);
-      this.persist = { life: this.cfg.maxLife, maxLife: this.cfg.maxLife, clock: 0, gems: 0, gemTotal: 0, deaths: 0, secrets: 0, relics: {} };
+      this.persist = { life: this.cfg.maxLife, maxLife: this.cfg.maxLife, clock: 0, gems: 0, deaths: 0, secrets: 0, relics: {}, timed: false };
       this.loadLevel(0);
     }
 
     // ================================================================ levels
-    loadLevel(index) {
+    loadLevel(index, opts = {}) {
       const lv = this.camp.levels[index];
       if (!lv) throw new Error(`No level ${index}`);
       this.levelIndex = index;
+      this.level = lv;
+      this.scripts = Object.assign({}, this.camp.scripts || {}, lv.scripts || {});
       this.world = R.compileLevel(this.camp, lv);
       this.time = 0;
       this.inv = {};
@@ -57,18 +77,20 @@
       this.levelDone = false;
       this.movers = [];
       this.timers = [];
+      this.events = [];
+      this.replaying = false;
       this.hazTimer = 0;
       this.lastSpan = null;
       this.lastLabel = null;
-      const s = this.world.start;
-      const cfg = this.cfg;
+      const s = this.world.start, cfg = this.cfg;
       this.player = {
-        x: s.x, y: s.y, z: s.z, vx: 0, vy: 0, vz: 0, ang: s.ang, pitch: 0,
-        onGround: true, airPeak: s.z, lastGround: 0, jumpBuf: -1, mode: 'move', act: null,
-        viewZ: s.z + cfg.eyeHeight, dip: 0, bobPhase: 0, bobAmp: 0, kvx: 0, kvy: 0,
-        life: this.persist.life, maxLife: this.persist.maxLife, invuln: 0, alive: true, careful: false, edgeT: 0,
+        x: s.x, y: s.y, z: s.z, vx: 0, vy: 0, vz: 0, ang: s.ang, pitch: 0, autoPitch: 0,
+        onGround: true, fallFrom: s.z, lastGround: 0, jumpBuf: -1, snapUntil: -1, airCap: 0, act: null,
+        viewZ: s.z + cfg.eyeHeight, dip: 0, bobPhase: 0, bobAmp: 0, kvx: 0, kvy: 0, turnLeft: 0, turnHeld: 0,
+        life: this.persist.maxLife, maxLife: this.persist.maxLife, invuln: 0, alive: true, careful: false,
+        edgeStop: false, prevFwd: false, lock: 0, upJump: false, screamed: false, hint: null, hintT: 0,
       };
-      this.checkpoint = { x: s.x, y: s.y, z: s.z, ang: s.ang };
+      if (!opts.respawn) this.levelStart = { persist: JSON.parse(JSON.stringify(this.persist)) };
       this.spansWith = { anim: [], door: [], loose: [], plate: [] };
       for (const c of this.world.cells) for (const sp of c.spans) {
         if (sp.anim) this.spansWith.anim.push(sp);
@@ -77,14 +99,20 @@
         if (sp.plate) this.spansWith.plate.push(sp);
       }
       this.spawnEntities();
-      this.levelGems = this.ents.filter(e => e.type === 'item' && this.itemDef(e.spec.item).kind === 'gem').length;
-      if (lv.onStart) this.runScript(lv.onStart, {});
+      this.cp = { x: s.x, y: s.y, z: s.z, ang: s.ang, nEvents: 0, inv: Object.assign({}, this.inv), persist: JSON.parse(JSON.stringify(this.persist)), maxLife: this.player.maxLife };
+      if (lv.onStart && !opts.respawn) this.runScript(lv.onStart, {});
     }
     nextLevel() {
-      this.persist.life = this.player.life; this.persist.maxLife = this.player.maxLife;
+      this.persist.maxLife = this.player.maxLife; this.persist.life = this.player.life;
       if (this.levelIndex + 1 >= this.camp.levels.length) return false;
       this.loadLevel(this.levelIndex + 1);
       return true;
+    }
+    /** Restart the current level as it was when you arrived. */
+    restartLevel() {
+      const keep = { clock: this.persist.clock, deaths: this.persist.deaths };
+      this.persist = Object.assign(JSON.parse(JSON.stringify(this.levelStart.persist)), keep);
+      this.loadLevel(this.levelIndex);
     }
 
     spawnEntities() {
@@ -117,6 +145,36 @@
       if (!it) throw new Error(`Unknown item "${id}"`);
       return it;
     }
+    isDrink(id) { return DRINKS.includes(this.itemDef(id).kind); }
+
+    // ============================================================== checkpoint event log
+    /** Record a permanent change so a checkpoint can rebuild the world as it was. */
+    record(ev) { if (!this.replaying) this.events.push(ev); }
+    spanByBase(x, y, baseFl) {
+      const c = this.world.cellAt(x, y);
+      return c && c.spans.find(s => Math.abs((s.origFl ?? s.baseFl) - baseFl) < 1e-6);
+    }
+    applyEvent(ev) {
+      const [kind] = ev;
+      if (kind === 'drop') { const s = this.spanByBase(ev[1], ev[2], ev[3]); if (s && s.loose) this.dropFloor(s, true); }
+      else if (kind === 'open') { const s = this.spanByBase(ev[1], ev[2], ev[3]); if (s && s.door) { s.door.state = 'open'; s.door.holdUntil = 0; s.cl = s.doorTop; s.door.found = true; } }
+      else if (kind === 'unlock') { const s = this.spanByBase(ev[1], ev[2], ev[3]); if (s && s.door) s.door.unlocked = true; }
+      else if (kind === 'lever') { const c = this.world.cellAt(ev[1], ev[2]); const b = c && c.band[ev[3]]; if (b && b.lever) this.pullLever(b, c, true); }
+      else if (kind === 'move') { for (const s of (this.world.tags.get(ev[1]) || [])) { s[ev[2]] = ev[3]; if (ev[2] === 'fl') s.baseFl = ev[3]; else s.baseCl = ev[3]; } }
+      else if (kind === 'gone') { const e = this.ents[ev[1]]; if (e) e.gone = true; }
+      else if (kind === 'lit') { for (const o of this.ents) if (o.type === 'checkpoint') o.lit = false; const e = this.ents[ev[1]]; if (e) e.lit = true; }
+      else if (kind === 'fired') { const e = this.ents[ev[1]]; if (e) e.fired = true; }
+      else if (kind === 'flag') this.flags[ev[1]] = ev[2];
+    }
+    /** Make the current position (a brazier, a landing...) the respawn point. */
+    setCheckpoint(x, y, z, ang) {
+      const p = this.player;
+      this.cp = {
+        x: x ?? p.x, y: y ?? p.y, z: z ?? p.z, ang: ang ?? p.ang,
+        nEvents: this.events.length, inv: Object.assign({}, this.inv),
+        persist: JSON.parse(JSON.stringify(this.persist)), maxLife: p.maxLife,
+      };
+    }
 
     // ============================================================== hooks
     msg(text, secs = 4) { this.hooks.msg && this.hooks.msg(text, secs); }
@@ -125,12 +183,14 @@
     shake(t = 0.4) { this.hooks.shake && this.hooks.shake(t); }
     face(state) { this.hooks.face && this.hooks.face(state); }
     sound(name, x, y, vol = 1, z) {
-      if (!this.hooks.sound) return;
+      if (!this.hooks.sound || this.replaying) return;
       if (x === undefined) { this.hooks.sound(name, vol, 0); return; }
-      const p = this.player, d = Math.hypot(p.x - x, p.y - y, z === undefined ? 0 : (p.z - z) * 1.5), range = 14;
+      const p = this.player, dz = z === undefined ? 0 : (p.z - z);
+      const d = Math.hypot(p.x - x, p.y - y, dz * 1.5), range = 14;
       if (d > range) return;
       const a = U.angDiff(p.ang, Math.atan2(y - p.y, x - p.x));
-      this.hooks.sound(name, vol * Math.pow(1 - d / range, 1.5), Math.sin(a) * Math.min(1, d / 2));
+      const slabs = Math.floor(Math.abs(dz) / 1.5);
+      this.hooks.sound(name, vol * Math.pow(1 - d / range, 1.5) * Math.pow(0.5, slabs), Math.sin(a) * Math.min(1, Math.hypot(p.x - x, p.y - y) / 2));
     }
     runScript(name, ctx = {}) {
       if (typeof name === 'function') return name(this, ctx);
@@ -138,7 +198,7 @@
       if (!fn) { console.warn('Missing script', name); return; }
       return fn(this, ctx);
     }
-    flag(name, value) { if (value !== undefined) this.flags[name] = value; return this.flags[name]; }
+    flag(name, value) { if (value !== undefined) { this.flags[name] = value; this.record(['flag', name, value]); } return this.flags[name]; }
     after(secs, fn) { this.timers.push({ at: this.time + secs, fn }); }
 
     // ============================================================== items
@@ -149,8 +209,8 @@
       const say = (t, snd, col) => { if (!opts.silent) { this.msg(t, 4); this.sound(snd); if (col) this.flash(col, 0.3); } };
       switch (it.kind) {
         case 'life': p.life = Math.min(p.maxLife, p.life + (it.heal || 1)); say(it.msg || 'You feel better.', it.sound || 'drink', [255, 80, 80]); this.face('grin'); break;
-        case 'bigLife': p.maxLife = Math.min(this.cfg.lifeCap, p.maxLife + 1); p.life = p.maxLife; say(it.msg || 'You feel stronger!', it.sound || 'bigdrink', [255, 220, 120]); this.face('grin'); break;
-        case 'poison': this.hurt(it.damage || 1, null, null, it.msg || 'Poison!'); if (!opts.silent) this.sound('drink'); break;
+        case 'bigLife': p.maxLife = Math.min(this.cfg.lifeCap, p.maxLife + 1); p.life = p.maxLife; this.persist.maxLife = p.maxLife; say(it.msg || 'You feel stronger!', it.sound || 'bigdrink', [255, 220, 120]); this.face('grin'); break;
+        case 'poison': if (!opts.silent) this.sound('drink'); this.hurt(it.damage || 1, null, null, it.msg || 'Poison!'); break;
         case 'gem': this.persist.gems++; say(it.msg || `${it.name}!`, it.sound || 'treasure', [120, 220, 255]); break;
         default:
           this.inv[id] = (this.inv[id] || 0) + 1;
@@ -166,28 +226,35 @@
 
     // ============================================================== world queries
     cellAt(x, y) { return this.world.cellAt(Math.floor(x), Math.floor(y)); }
-    /** Span a body with feet at z would occupy in `cell`, or null if blocked. */
-    occupy(cell, z) {
+    /** Span a body with feet at z would occupy in `cell` (stepping up at most `up`), or null. */
+    occupy(cell, z, up = this.cfg.stepUp) {
       if (!cell) return null;
-      const cfg = this.cfg;
+      const h = this.cfg.height;
       for (const s of cell.spans) {
-        if (s.fl > z + cfg.stepUp + 1e-6) continue;
-        if (s.cl - Math.max(s.fl, z) < cfg.height - 1e-6) continue;
+        if (s.fl > z + up + 1e-6) continue;
+        if (s.cl - Math.max(s.fl, z) < h - 1e-6) continue;
         return s;
       }
       return null;
     }
-    /** Is (nx, ny) blocked for the player at feet height z? */
-    blocked(nx, ny, z = this.player.z) {
+    /** The span a body with feet at z is in (or steps up into), or null (rock). */
+    spanFor(c, z) {
+      if (!c) return null;
+      const up = this.cfg.stepUp + 1e-6;
+      for (const s of c.spans) if (s.fl <= z + up && s.cl > z + 0.01) return s;
+      return null;
+    }
+    /** Is (nx, ny) blocked for the body at feet height z? */
+    blocked(nx, ny, z = this.player.z, up = this.cfg.stepUp) {
       const cfg = this.cfg, p = this.player, r = cfg.radius, W = this.world;
       const x0 = Math.floor(nx - r), x1 = Math.floor(nx + r), y0 = Math.floor(ny - r), y1 = Math.floor(ny + r);
       const ox0 = Math.floor(p.x - r), ox1 = Math.floor(p.x + r), oy0 = Math.floor(p.y - r), oy1 = Math.floor(p.y + r);
       for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
         const c = W.cellAt(cx, cy);
         if (!c) return true;
-        if (this.occupy(c, z)) continue;
+        if (this.occupy(c, z, up)) continue;
         const inside = cx >= ox0 && cx <= ox1 && cy >= oy0 && cy <= oy1;
-        if (inside && R.spanAt(c, z + 0.01)) continue; // being squeezed (crusher / closing gate): let them out
+        if (inside && R.spanAt(c, z + 0.01)) continue; // squeezed by a crusher or gate: let them out
         return true;
       }
       for (const e of this.ents) {
@@ -198,24 +265,28 @@
       }
       return false;
     }
-    /** The span a body with feet at z is in (or steps up into) in this cell, or null (rock). */
-    spanFor(c, z) {
-      if (!c) return null;
-      const up = this.cfg.stepUp + 1e-6;
-      for (const s of c.spans) if (s.fl <= z + up && s.cl > z + 0.01) return s;
-      return null;
-    }
-    /** Highest floor under the body, lowest ceiling above it, and the span stood on. */
+    /** Floor under the feet (narrow foot circle) and ceiling over the head (body circle). */
     supportAt(x, y, z = this.player.z) {
-      const r = this.cfg.radius;
+      const fr = this.cfg.footRadius, r = this.cfg.radius;
       let fz = -1e9, cz = 1e9, top = null;
+      for (let cy = Math.floor(y - fr); cy <= Math.floor(y + fr); cy++) for (let cx = Math.floor(x - fr); cx <= Math.floor(x + fr); cx++) {
+        const s = this.spanFor(this.world.cellAt(cx, cy), z);
+        if (s && s.fl > fz) { fz = s.fl; top = s; }
+      }
       for (let cy = Math.floor(y - r); cy <= Math.floor(y + r); cy++) for (let cx = Math.floor(x - r); cx <= Math.floor(x + r); cx++) {
         const s = this.spanFor(this.world.cellAt(cx, cy), z);
-        if (!s) continue;
-        if (s.fl > fz) { fz = s.fl; top = s; }
-        if (s.cl < cz) cz = s.cl;
+        if (s && s.cl < cz) cz = s.cl;
       }
       return { fz, cz, span: top };
+    }
+    /** Floor spans touched by the foot circle at the current height (loose floors, plates). */
+    footSpans() {
+      const p = this.player, fr = this.cfg.footRadius, out = [];
+      for (let cy = Math.floor(p.y - fr); cy <= Math.floor(p.y + fr); cy++) for (let cx = Math.floor(p.x - fr); cx <= Math.floor(p.x + fr); cx++) {
+        const s = this.spanFor(this.world.cellAt(cx, cy), p.z);
+        if (s && Math.abs(s.fl - p.z) < 0.08) out.push(s);
+      }
+      return out;
     }
     /** The span directly under the player's centre (what you stand on). */
     footSpan() {
@@ -229,20 +300,17 @@
       if (!s) console.warn('No spans tagged', tag);
       return s || [];
     }
-    setTex(tag, prop, name) {
-      const id = R.textures.id(name);
-      for (const s of this.spansTagged(tag)) s[prop] = id;
-    }
-    setSpans(tag, props) {
-      for (const s of this.spansTagged(tag)) for (const [k, v] of Object.entries(props)) s[k] = ['ftex', 'ctex', 'wall', 'low', 'up'].includes(k) ? R.textures.id(v) : v;
-    }
+    setTex(tag, prop, name) { const id = R.textures.id(name); for (const s of this.spansTagged(tag)) s[prop] = id; }
+    setSpans(tag, props) { for (const s of this.spansTagged(tag)) for (const [k, v] of Object.entries(props)) s[k] = ['ftex', 'ctex', 'wall', 'low', 'up'].includes(k) ? R.textures.id(v) : v; }
     moveSpans(tag, prop, target, speed = 1, then = null) {
       const spans = this.spansTagged(tag);
+      this.record(['move', tag, prop, target]);
+      if (this.replaying) { for (const s of spans) { s[prop] = target; if (prop === 'fl') s.baseFl = target; else s.baseCl = target; } return; }
       this.movers.push({ spans, prop, target, speed, then });
-      if (spans.length) this.sound('lift', spans[0].cell.x + 0.5, spans[0].cell.y + 0.5);
+      if (spans.length) this.sound('lift', spans[0].cell.x + 0.5, spans[0].cell.y + 0.5, 1, spans[0].fl);
     }
     entities(tag) { return this.ents.filter(e => e.tag === tag); }
-    remove(e) { e.gone = true; }
+    remove(e) { e.gone = true; if (e.initial) this.record(['gone', e.id]); }
 
     openDoor(tagOrSpan, holdSecs = 0, silent = false) {
       const spans = typeof tagOrSpan === 'string' ? this.spansTagged(tagOrSpan)
@@ -251,7 +319,9 @@
       for (const s of spans) {
         const d = s.door;
         if (!d) continue;
-        if (holdSecs) d.holdUntil = this.time + holdSecs + (s.doorTop - s.cl) / d.speed;
+        const permanent = d.state === 'open' && !d.holdUntil;
+        if (holdSecs) { if (!permanent) d.holdUntil = Math.max(d.holdUntil || 0, this.time + holdSecs + (s.doorTop - s.cl) / d.speed); }
+        else { d.holdUntil = 0; this.record(['open', s.cell.x, s.cell.y, s.baseFl]); }
         if (d.state === 'open' || d.state === 'opening') continue;
         d.state = 'opening';
         if (!silent && !played) { this.sound(d.sound, s.cell.x + 0.5, s.cell.y + 0.5, 1, s.fl); played = true; }
@@ -268,7 +338,7 @@
       if (d.remote) { this.msg(d.msg || 'It will not budge. Something else must open it.'); this.sound('locked'); return true; }
       if (d.key && !d.unlocked) {
         if (!this.has(d.key)) { this.msg(d.msg || `Locked. You need the ${this.itemDef(d.key).name}.`); this.sound('locked'); return true; }
-        for (const gs of (d.group ? this.spansTagged(d.group) : [s])) if (gs.door) gs.door.unlocked = true;
+        for (const gs of (d.group ? this.spansTagged(d.group) : [s])) if (gs.door) { gs.door.unlocked = true; this.record(['unlock', gs.cell.x, gs.cell.y, gs.baseFl]); }
         this.msg(d.openMsg || `You use the ${this.itemDef(d.key).name}.`);
         if (this.itemDef(d.key).consume) this.take(d.key);
       }
@@ -286,11 +356,13 @@
           if (d.holdUntil && this.time >= d.holdUntil) { d.state = 'closing'; d.holdUntil = 0; this.sound(d.sound, s.cell.x + 0.5, s.cell.y + 0.5, 0.6, s.fl); }
         } else if (d.state === 'closing') {
           let nc = Math.max(s.fl, s.cl - d.closeSpeed * dt);
-          // never close onto the player
           const r = cfg.radius;
+          // a gate never closes on you: it stops above your head while you are under it
           if (Math.abs(p.x - (s.cell.x + 0.5)) < 0.5 + r && Math.abs(p.y - (s.cell.y + 0.5)) < 0.5 + r && p.z < s.doorTop && p.z + cfg.height > s.fl - 0.1) nc = Math.max(nc, Math.min(s.cl, p.z + cfg.height + 0.02));
+          const tick = Math.floor(s.cl * 8) !== Math.floor(nc * 8);
           s.cl = nc;
-          if (s.cl <= s.fl) d.state = 'closed';
+          if (tick) this.sound('ratchet', s.cell.x + 0.5, s.cell.y + 0.5, 0.5, s.fl);
+          if (s.cl <= s.fl) { d.state = 'closed'; this.sound('clang', s.cell.x + 0.5, s.cell.y + 0.5, 0.8, s.fl); }
         }
       }
     }
@@ -310,57 +382,88 @@
       if (this.movers.some(m => m.finished)) this.movers = this.movers.filter(m => !m.finished);
     }
 
-    // ============================================================== loose floors & plates
+    // ============================================================== loose floors, plates, levers
     triggerLoose(s) {
       if (!s.loose || s.loose.state !== 'idle') return;
       s.loose.state = 'shaking'; s.loose.t = 0;
       this.sound('rattle', s.cell.x + 0.5, s.cell.y + 0.5, 0.9, s.fl);
     }
     updateLoose(dt) {
+      const p = this.player;
       for (const s of this.spansWith.loose) {
         const L = s.loose;
         if (L.state !== 'shaking') continue;
         L.t += dt;
-        s.fl = s.baseFl + (Math.sin(L.t * 70) * 0.012);
-        if (L.t >= L.delay) this.dropFloor(s);
+        s.fl = s.baseFl + Math.sin(L.t * 70) * 0.012;
+        if (p.onGround && Math.abs(p.z - s.baseFl) < 0.1 && Math.abs(p.x - s.cell.x - 0.5) < 0.6 && Math.abs(p.y - s.cell.y - 0.5) < 0.6) this.shake(0.03);
+        if (L.t >= (L.delay ?? this.cfg.looseDelay)) this.dropFloor(s);
       }
     }
-    /** Remove the floor slab under span s: it falls to the span below. */
-    dropFloor(s) {
+    /** Remove the floor slab under span s: it falls to the span below and shatters. */
+    dropFloor(s, instant = false) {
       const c = s.cell, i = c.spans.indexOf(s);
-      if (i < 0) return;
+      if (i < 0 || !s.loose) return;
       s.loose.state = 'fallen';
+      this.record(['drop', c.x, c.y, s.baseFl]);
       const x = c.x + 0.5, y = c.y + 0.5, z0 = s.baseFl;
+      const sprite = this.camp.looseSprite || 'LOOSE_TILE';
       if (i > 0) {
         const below = c.spans[i - 1];
         below.cl = below.baseCl = s.cl; below.ctex = s.ctex; below.sky = below.sky || s.sky;
         c.spans.splice(i, 1);
         for (const b of c.band) if (b.span === s) b.span = below;
-        this.spawn({ type: 'fallingTile', x, y, z0, landZ: below.fl, sprite: this.camp.looseSprite || 'LOOSE_TILE' });
+        if (below.plate) below.plate.jammed = true; // rubble holds a plate down for good
+        if (instant) this.spawn({ type: 'deco', x, y, z0: below.fl, sprite: 'RUBBLE' });
+        else this.spawn({ type: 'fallingTile', x, y, z0, landZ: below.fl, sprite });
       } else {
-        s.fl = s.baseFl = -60; s.hazard = 'abyss'; s.loose = null;
-        this.spawn({ type: 'fallingTile', x, y, z0, landZ: -40, sprite: this.camp.looseSprite || 'LOOSE_TILE' });
+        s.origFl = s.baseFl; s.fl = s.baseFl = -60; s.hazard = 'abyss';
+        if (!instant) this.spawn({ type: 'fallingTile', x, y, z0, landZ: -40, sprite });
       }
-      this.sound('crumble', x, y, 1, z0);
+      if (!instant) this.sound('crumble', x, y, 1, z0);
       this.spansWith.loose = this.spansWith.loose.filter(q => q !== s);
+      c.spans.forEach((q, k) => { q.index = k; });
     }
-    updatePlates(foot) {
+    updatePlates(feet) {
+      const p = this.player;
       for (const s of this.spansWith.plate) {
-        const on = foot === s && this.player.onGround;
         const P = s.plate;
+        if (P.jammed && !P.jamDone && !(P.closes && !P.opens)) {
+          P.jamDone = true; P.pressed = true; s.fl = s.baseFl - 0.04;
+          this.sound('click', s.cell.x + 0.5, s.cell.y + 0.5, 1, s.fl);
+          if (P.opens) this.openDoor(P.opens, 0);
+          if (P.lift && !P.lifted) { P.lifted = true; this.moveSpans(P.lift.tag, P.lift.prop || 'fl', P.lift.to, P.lift.speed || 0.8); }
+        }
+        if (P.jamDone) continue;
+        const on = p.onGround && feet.includes(s);
         if (on && !P.pressed) {
           P.pressed = true; s.fl = s.baseFl - 0.04;
           this.sound('click', s.cell.x + 0.5, s.cell.y + 0.5, 1, s.fl);
           if (P.opens) this.openDoor(P.opens, P.hold || 0);
           if (P.closes) this.closeDoor(P.closes);
-          if (P.lift) this.moveSpans(P.lift.tag, P.lift.prop || 'fl', P.lift.to, P.lift.speed || 0.8);
+          if (P.lift && !P.lifted) { P.lifted = true; this.moveSpans(P.lift.tag, P.lift.prop || 'fl', P.lift.to, P.lift.speed || 0.8); }
           if (P.script) this.runScript(P.script, { span: s });
           if (P.msg && !P.said) { P.said = true; this.msg(P.msg); }
         } else if (!on && P.pressed) { P.pressed = false; s.fl = s.baseFl; }
       }
     }
+    /** Declarative lever: { opens, closes, lift: {tag, to, prop, speed}, hold, msg, script, once }. */
+    pullLever(band, c, replay = false) {
+      const L = band.lever;
+      if (L.on && L.once !== false) { if (!replay) { this.msg(L.doneMsg || 'The lever will not move any further.'); this.sound('noway'); } return; }
+      L.on = !L.on;
+      band.wall = R.textures.id(L.on ? (L.texOn || 'LEVER_DOWN') : (L.texOff || 'LEVER_UP'));
+      this.record(['lever', c.x, c.y, c.band.indexOf(band)]);
+      if (!replay) this.sound('switch', c.x + 0.5, c.y + 0.5);
+      if (L.on) {
+        if (L.opens) { if (replay) for (const s of (this.world.tags.get(L.opens) || [])) { if (s.door) { s.door.state = 'open'; s.cl = s.doorTop; } } else this.openDoor(L.opens, L.hold || 0); }
+        if (L.closes && !replay) this.closeDoor(L.closes);
+        if (L.lift) this.moveSpans(L.lift.tag, L.lift.prop || 'fl', L.lift.to, L.lift.speed || 0.8);
+      } else if (L.opens) this.closeDoor(L.opens);
+      if (!replay && L.msg) this.msg(L.msg);
+      if (!replay && L.script) this.runScript(L.script, { cell: c, band });
+    }
 
-    // ============================================================== damage
+    // ============================================================== damage & death
     hurt(n, sx, sy, message) {
       const p = this.player;
       if (!p.alive || p.invuln > 0 || this.god) return false;
@@ -383,42 +486,46 @@
       if (!p.alive || this.god) return false;
       p.life = 0;
       this.flash([255, 0, 0], 0.7);
-      if (message) this.msg(message, 3);
       this.die(message);
       return true;
     }
-    die() {
+    die(cause) {
       const p = this.player;
       p.alive = false; this.persist.deaths++;
-      p.mode = 'move'; p.act = null;
+      p.act = null; this.deathCause = cause || null;
       this.sound('death'); this.face('dead');
-      this.hooks.died && this.hooks.died();
+      this.hooks.died && this.hooks.died(cause);
     }
+    /** Back to the last checkpoint, with the world as it was when it was lit. */
     respawn() {
-      const p = this.player, cp = this.checkpoint, cfg = this.cfg;
-      Object.assign(p, { x: cp.x, y: cp.y, z: cp.z, ang: cp.ang, vx: 0, vy: 0, vz: 0, kvx: 0, kvy: 0, pitch: 0,
-        onGround: true, airPeak: cp.z, mode: 'move', act: null, alive: true, invuln: cfg.respawnInvuln, life: p.maxLife });
+      const cp = this.cp, keep = { clock: this.persist.clock, deaths: this.persist.deaths };
+      const evs = this.events.slice(0, cp.nEvents);
+      this.persist = Object.assign(JSON.parse(JSON.stringify(cp.persist)), keep);
+      this.loadLevel(this.levelIndex, { respawn: true });
+      this.replaying = true;
+      for (const ev of evs) this.applyEvent(ev);
+      this.replaying = false;
+      this.events = evs;
+      this.inv = Object.assign({}, cp.inv);
+      this.cp = cp;
+      const p = this.player, cfg = this.cfg;
+      Object.assign(p, { x: cp.x, y: cp.y, z: cp.z, ang: cp.ang, fallFrom: cp.z, invuln: cfg.respawnInvuln, maxLife: cp.maxLife, life: cp.maxLife });
       p.viewZ = p.z + cfg.eyeHeight;
       this.face('normal');
       this.hooks.respawned && this.hooks.respawned();
-    }
-    setCheckpoint(x, y, z, ang) {
-      const p = this.player;
-      this.checkpoint = { x: x ?? p.x, y: y ?? p.y, z: z ?? p.z, ang: ang ?? p.ang };
     }
     teleport(x, y, z, ang) {
       const p = this.player;
       p.x = x; p.y = y;
       const c = this.cellAt(x, y);
       const s = z !== undefined ? (R.spanAt(c, z + 0.01) || R.spanBelow(c, z + 0.01)) : c.spans[0];
-      p.z = s ? s.fl : (z || 0); p.vz = 0; p.onGround = true; p.airPeak = p.z; p.mode = 'move'; p.act = null;
+      p.z = s ? s.fl : (z || 0); p.vz = 0; p.vx = p.vy = 0; p.onGround = true; p.fallFrom = p.z; p.act = null; p.lock = 0;
       if (ang !== undefined) p.ang = U.dirAngle(ang);
       p.viewZ = p.z + this.cfg.eyeHeight;
     }
     win(info = {}) {
       if (this.won) return;
       this.won = true;
-      this.persist.life = this.player.life;
       this.hooks.won && this.hooks.won(info);
     }
 
@@ -455,206 +562,331 @@
     updatePlayer(dt, inp) {
       const cfg = this.cfg, p = this.player;
       p.careful = !!inp.careful;
+      const fwdIn = inp.fwd || 0;
+      const fwdEdge = fwdIn > 0 && !p.prevFwd;
+      p.prevFwd = fwdIn > 0;
       if (inp.jump) p.jumpBuf = this.time;
-      // ---- scripted actions (climbing, hanging)
-      if (p.act) { this.updateAction(dt); this.afterMove(dt); return; }
+      if (inp.about && p.turnLeft <= 0 && !p.act) p.turnLeft = Math.PI;
+      if (p.act) { this.updateAction(dt, inp, fwdEdge); this.afterMove(dt); return; }
 
-      p.ang += (inp.turn || 0) * cfg.turnSpeed * (inp.run ? 1.25 : 1) * dt;
+      // turning (gentle ramp for fine aiming), quick about-face, axis magnetism
+      if (inp.turn) p.turnHeld += dt; else p.turnHeld = 0;
+      const ramp = p.turnHeld < 0.12 ? 0.35 : 1;
+      p.ang += (inp.turn || 0) * cfg.turnSpeed * ramp * (inp.run ? 1.25 : 1) * dt;
+      if (p.turnLeft > 0) { const a = Math.min(p.turnLeft, Math.PI / cfg.turnAroundTime * dt); p.ang += a; p.turnLeft -= a; }
+      else if (!inp.turn && fwdIn > 0 && p.onGround) {
+        const q = Math.round(p.ang / (Math.PI / 2)) * (Math.PI / 2), off = U.angDiff(p.ang, q);
+        if (Math.abs(off) < cfg.magnet && Math.abs(off) > 1e-4) p.ang += Math.sign(off) * Math.min(Math.abs(off), 0.44 * dt);
+      }
       p.ang = U.mod(p.ang + Math.PI, Math.PI * 2) - Math.PI;
-      if (inp.look) p.pitch = U.clamp(p.pitch + inp.look * 110 * dt, -cfg.lookMax, cfg.lookMax);
+      if (inp.look) p.pitch = U.clamp(p.pitch + inp.look * 120 * dt, -cfg.lookMax, cfg.lookMax);
       if (inp.center) p.pitch *= Math.max(0, 1 - dt * 12);
 
+      // landing recovery: a moment to find your feet
+      let fwd = fwdIn, str = inp.strafe || 0;
+      if (p.lock > 0) { p.lock -= dt; fwd = 0; str = 0; p.jumpBuf = -1; }
       const sp = p.careful ? cfg.carefulSpeed : inp.run ? cfg.runSpeed : cfg.walkSpeed;
-      let fwd = inp.fwd || 0, str = inp.strafe || 0;
       const l = Math.hypot(fwd, str); if (l > 1) { fwd /= l; str /= l; }
       const dx = Math.cos(p.ang), dy = Math.sin(p.ang);
       const tx = (dx * fwd - dy * str) * sp, ty = (dy * fwd + dx * str) * sp;
-      const k = Math.min(1, cfg.accel * dt * (p.onGround ? 1 : cfg.airControl));
-      if (p.onGround || fwd || str) { p.vx += (tx - p.vx) * k; p.vy += (ty - p.vy) * k; }
+      if (p.onGround) {
+        const slowing = Math.hypot(tx, ty) < Math.hypot(p.vx, p.vy) - 0.05;
+        const k = 1 - Math.exp(-(slowing ? cfg.brake : cfg.accel) * dt);
+        p.vx += (tx - p.vx) * k; p.vy += (ty - p.vy) * k;
+      } else if (fwd || str) {
+        // in the air you may steer and brake a little, never gain speed (C held to catch does not brake)
+        const k = 1 - Math.exp(-cfg.accel * cfg.airControl * dt), sa = (inp.run ? cfg.runSpeed : cfg.walkSpeed) / sp;
+        p.vx += (tx * sa - p.vx) * k; p.vy += (ty * sa - p.vy) * k;
+        const v = Math.hypot(p.vx, p.vy), cap = Math.max(p.airCap, 0.01);
+        if (v > cap) { p.vx *= cap / v; p.vy *= cap / v; }
+      }
 
-      // ---- jumping (with buffer and coyote time)
-      const canJump = p.onGround || this.time - p.lastGround < cfg.coyote;
-      if (p.jumpBuf >= 0 && this.time - p.jumpBuf <= cfg.jumpBuffer && canJump && p.vz <= 0.01) {
+      // ---- Space: climb a ledge ahead, else jump (a running jump waits for the edge)
+      const canJump = p.onGround || (this.time - p.lastGround < cfg.coyote && p.vz <= 0);
+      if (p.jumpBuf >= 0 && this.time - p.jumpBuf <= cfg.jumpBuffer && canJump && p.snapUntil < 0) {
         p.jumpBuf = -1;
-        if (this.tryClimb(false)) { this.afterMove(dt); return; }
-        p.vz = cfg.jumpV; p.onGround = false; p.airPeak = p.z; p.lastGround = -10;
+        if (p.onGround && this.tryClimb()) { this.afterMove(dt); return; }
         const speed = Math.hypot(p.vx, p.vy);
-        if (speed < 1.2) { p.vx += dx * cfg.standJumpPush * (fwd >= 0 ? 1 : -0.5); p.vy += dy * cfg.standJumpPush * (fwd >= 0 ? 1 : -0.5); }
-        this.sound('jump', undefined, undefined, 0.5);
+        if (p.onGround && fwd > 0 && speed > 1.5 && this.dropAhead(cfg.edgeSnap) > 0) p.snapUntil = this.time + cfg.snapWait;
+        else this.doJump(fwd);
+      }
+      if (p.snapUntil >= 0) {
+        const ahead = Math.hypot(p.vx, p.vy) * dt + 0.05;
+        if (!p.onGround || this.dropAhead(ahead, true) >= 0 || this.time > p.snapUntil) { p.snapUntil = -1; this.doJump(fwd); }
       }
 
       // ---- horizontal movement with collision (sub-stepped)
       const mx = (p.vx + p.kvx) * dt, my = (p.vy + p.kvy) * dt;
-      const kd = Math.max(0, 1 - 7 * dt); p.kvx *= kd; p.kvy *= kd;
-      const n = Math.max(1, Math.ceil(Math.max(Math.abs(mx), Math.abs(my)) / 0.12));
-      let hitWall = false;
+      const knocked = Math.hypot(p.kvx, p.kvy) > 0.3;
+      const kd = Math.exp(-7 * dt); p.kvx *= kd; p.kvy *= kd;
+      const up = p.onGround ? cfg.stepUp : cfg.airStepUp;
+      const n = Math.max(1, Math.ceil(Math.max(Math.abs(mx), Math.abs(my)) / 0.08));
+      let edge = false;
       for (let i = 0; i < n; i++) {
         const sx = mx / n, sy = my / n;
-        if (this.edgeGuard(p.x + sx, p.y)) { p.vx = 0; hitWall = 'edge'; }
-        else if (!this.blocked(p.x + sx, p.y)) p.x += sx; else { p.vx = 0; p.kvx = 0; hitWall = true; }
-        if (this.edgeGuard(p.x, p.y + sy)) { p.vy = 0; hitWall = 'edge'; }
-        else if (!this.blocked(p.x, p.y + sy)) p.y += sy; else { p.vy = 0; p.kvy = 0; hitWall = hitWall || true; }
+        if (this.edgeGuard(p.x + sx, p.y, knocked)) { p.vx = 0; p.kvx = 0; edge = true; }
+        else if (!this.blocked(p.x + sx, p.y, p.z, up)) p.x += sx; else { p.vx = 0; p.kvx = 0; }
+        if (this.edgeGuard(p.x, p.y + sy, knocked)) { p.vy = 0; p.kvy = 0; edge = true; }
+        else if (!this.blocked(p.x, p.y + sy, p.z, up)) p.y += sy; else { p.vy = 0; p.kvy = 0; }
       }
-      // careful step at an edge, still pushing forward: hang and drop
-      if (hitWall === 'edge' && fwd > 0) { p.edgeT += dt; if (p.edgeT > 0.25 && this.tryHangDrop()) { p.edgeT = 0; this.afterMove(dt); return; } }
-      else p.edgeT = 0;
-      // in the air against a wall: grab a ledge
-      if (!p.onGround && hitWall === true && fwd > 0 && this.tryClimb(true)) { this.afterMove(dt); return; }
+      // careful at an edge: press Forward again to lower yourself into a hang
+      if (edge && fwd > 0) p.edgeStop = true;
+      else if (!p.careful || fwd < 0 || Math.hypot(p.vx, p.vy) > 0.3) p.edgeStop = false;
+      if (p.edgeStop && fwdEdge && p.careful && this.tryLower()) { p.edgeStop = false; this.afterMove(dt); return; }
+      // in the air, near a ledge you face: catch it (C held: hang; Forward: pull up)
+      if (!p.onGround && (fwd > 0 || p.careful) && this.tryCatch()) { this.afterMove(dt); return; }
 
-      // ---- vertical
+      // ---- vertical (exact kinematics; support from the height before moving)
       const sup = this.supportAt(p.x, p.y);
-      if (p.onGround && sup.fz < p.z - 0.001 && sup.fz >= p.z - cfg.stepUp && p.vz <= 0) {
-        p.z = sup.fz; // walking down small steps
-      }
+      if (p.onGround && sup.fz < p.z - 0.001 && sup.fz >= p.z - cfg.stepUp && p.vz <= 0) p.z = sup.fz;
       if (sup.fz >= p.z - 0.001 && p.vz <= 0) {
         if (!p.onGround) this.land(sup);
         p.z = Math.max(p.z, sup.fz); p.vz = 0; p.onGround = true; p.lastGround = this.time;
       } else {
-        if (p.onGround) { p.onGround = false; p.airPeak = p.z; }
+        if (p.onGround) { p.onGround = false; p.fallFrom = p.z; p.airCap = Math.max(Math.hypot(p.vx, p.vy), 0.5); p.screamed = false; }
+        const prevVz = p.vz;
+        p.z += p.vz * dt - 0.5 * cfg.gravity * dt * dt;
         p.vz -= cfg.gravity * dt;
-        p.z += p.vz * dt;
-        if (p.z > p.airPeak) p.airPeak = p.z;
-        if (p.z + cfg.height > sup.cz) { p.z = sup.cz - cfg.height; if (p.vz > 0) { p.vz = 0; this.sound('bump', undefined, undefined, 0.4); } }
+        if (p.upJump && prevVz > 0 && p.vz <= 0) { p.upJump = false; this.reachUp(); }
+        if (p.z + cfg.height > sup.cz) {
+          p.z = sup.cz - cfg.height;
+          if (p.vz > 0) { p.vz = 0; this.sound('bump', undefined, undefined, 0.4); this.reachUp(); }
+        }
+        if (!p.screamed && p.fallFrom - p.z > cfg.fallHurt) { p.screamed = true; this.sound('scream'); }
         if (p.z <= sup.fz) { p.z = sup.fz; this.land(sup); p.vz = 0; p.onGround = true; p.lastGround = this.time; }
       }
       // head bob + footsteps
       const spd = Math.hypot(p.vx, p.vy), prevPhase = p.bobPhase;
       p.bobPhase += spd * dt * 2.1;
-      p.bobAmp += ((p.onGround ? Math.min(1, spd / cfg.runSpeed) : 0) - p.bobAmp) * Math.min(1, dt * 8);
-      if (p.onGround && spd > 0.5 && Math.floor(prevPhase / Math.PI) !== Math.floor(p.bobPhase / Math.PI)) this.sound('step', undefined, undefined, p.careful ? 0.15 : 0.35);
+      p.bobAmp += ((p.onGround && !p.careful ? Math.min(1, spd / cfg.runSpeed) : 0) - p.bobAmp) * Math.min(1, dt * 8);
+      if (p.onGround && spd > 0.5 && Math.floor(prevPhase / Math.PI) !== Math.floor(p.bobPhase / Math.PI)) this.sound('step', undefined, undefined, p.careful ? 0.12 : 0.35);
       if (inp.use) this.useAction();
       this.afterMove(dt);
     }
 
-    /** Careful step: refuse moves that would leave the floor for a drop. */
-    edgeGuard(nx, ny) {
+    doJump(fwd) {
+      const p = this.player, cfg = this.cfg;
+      let dx = Math.cos(p.ang), dy = Math.sin(p.ang);
+      // a jump started close to a corridor axis flies straight along it
+      const q = Math.round(p.ang / (Math.PI / 2)) * (Math.PI / 2);
+      const onAxis = Math.abs(U.angDiff(p.ang, q)) < 0.14;
+      if (onAxis) { dx = Math.round(Math.cos(q)); dy = Math.round(Math.sin(q)); }
+      if (fwd > 0) {
+        const along = Math.max(p.vx * dx + p.vy * dy, cfg.standJumpPush);
+        const lat = onAxis ? 0 : -p.vx * dy + p.vy * dx;
+        p.vx = dx * along - dy * lat; p.vy = dy * along + dx * lat;
+        p.upJump = false;
+      } else { p.vx *= 0.2; p.vy *= 0.2; p.upJump = true; }
+      p.vz = cfg.jumpV; p.onGround = false; p.fallFrom = p.z; p.lastGround = -10; p.screamed = false;
+      p.airCap = Math.max(Math.hypot(p.vx, p.vy), 0.5);
+      this.sound('jump', undefined, undefined, 0.5);
+    }
+    /** Distance along the velocity to the first drop (> stepUp), or -1. centre: test the centre point only. */
+    dropAhead(maxD, centre = false) {
+      const p = this.player, v = Math.hypot(p.vx, p.vy);
+      if (v < 0.1) return -1;
+      const ux = p.vx / v, uy = p.vy / v;
+      for (let d = 0.02; d <= maxD + 1e-9; d += 0.02) {
+        const x = p.x + ux * d, y = p.y + uy * d;
+        const fz = centre ? (this.spanFor(this.cellAt(x, y), p.z) || { fl: -1e9 }).fl : this.supportAt(x, y).fz;
+        if (fz < p.z - this.cfg.stepUp) return d;
+        if (this.blocked(x, y)) return -1;
+      }
+      return -1;
+    }
+    /** Careful steps (and knock-back) never carry you over an edge. */
+    edgeGuard(nx, ny, knocked) {
       const p = this.player;
-      if (!p.careful || !p.onGround) return false;
-      const s = this.supportAt(nx, ny);
-      return s.fz < p.z - this.cfg.stepUp;
+      if (!p.onGround || (!p.careful && !knocked)) return false;
+      return this.supportAt(nx, ny).fz < p.z - this.cfg.stepUp;
+    }
+    /** Reaching up at the top of a jump (or bumping the ceiling) knocks a loose slab down. */
+    reachUp() {
+      const p = this.player, c = this.cellAt(p.x, p.y);
+      if (!c) return;
+      const cur = R.spanAt(c, p.z + 0.02) || R.spanBelow(c, p.z + 0.02);
+      const up = cur && c.spans[c.spans.indexOf(cur) + 1];
+      if (up && up.loose && cur.cl <= p.fallFrom + this.cfg.upReach + 1e-6) this.triggerLoose(up);
     }
 
     land(sup) {
       const p = this.player, cfg = this.cfg;
-      const drop = p.airPeak - sup.fz;
-      p.dip = Math.min(0.18, 0.04 + drop * 0.05);
+      const drop = p.fallFrom - sup.fz;
+      p.dip = Math.min(0.15, 0.03 * Math.max(0, -p.vz));
       const s = sup.span;
-      if (s && (s.hazard === 'abyss')) return;
-      if (drop > cfg.fallHurt) { this.sound('land', undefined, undefined, 1); this.kill('You fell to your death.'); return; }
-      if (drop > cfg.fallSafe) { this.sound('land', undefined, undefined, 1); this.hurt(1, null, null, 'A hard landing!'); }
-      else if (drop > 0.9) this.sound('land', undefined, undefined, 0.6);
-      p.airPeak = sup.fz;
+      p.fallFrom = sup.fz;
+      if (s && s.hazard === 'abyss') return;
+      if (drop > cfg.fallHurt) { this.sound('land', undefined, undefined, 1); this.kill('The fall killed you.'); return; }
+      if (drop > cfg.fallSafe) { this.sound('land', undefined, undefined, 1); p.dip = 0.3; p.lock = 0.6; this.hurt(1, null, null, 'A hard landing!'); }
+      else if (drop > 0.6) { this.sound('land', undefined, undefined, drop > 1.2 ? 0.8 : 0.5); p.lock = 0.25; p.vx *= 0.3; p.vy *= 0.3; }
       this.hooks.landed && this.hooks.landed(drop);
     }
 
-    /**
-     * Try to climb onto the ledge in front. fromAir: grab while jumping/falling.
-     * Returns true when a climb starts.
-     */
-    tryClimb(fromAir) {
-      const p = this.player, cfg = this.cfg;
-      const dx = Math.cos(p.ang), dy = Math.sin(p.ang);
-      const lo = fromAir ? p.z + cfg.airGrabLow : p.z + cfg.climbMin;
-      const hi = fromAir ? p.z + cfg.airGrabHigh : p.z + cfg.climbMax;
-      // the first cell ahead that differs from ours
-      const cx = Math.floor(p.x), cy = Math.floor(p.y);
-      let tx = null, ty = null, dist = 0;
-      for (let s = 0.05; s <= 0.8; s += 0.05) {
-        const ax = Math.floor(p.x + dx * s), ay = Math.floor(p.y + dy * s);
-        if (ax !== cx || ay !== cy) { tx = ax; ty = ay; dist = s; break; }
-      }
-      if (tx === null) return false;
-      const C = this.world.cellAt(tx, ty);
-      if (!C) return false;
-      const occ = this.occupy(C, p.z);
-      if (occ && occ.fl <= p.z + cfg.stepUp && !fromAir) return false; // not a wall: just walk
+    /** Dominant facing axis: {ax: 'x'|'y', s: ±1}. */
+    facingAxis() {
+      const dx = Math.cos(this.player.ang), dy = Math.sin(this.player.ang);
+      return Math.abs(dx) >= Math.abs(dy) ? { ax: 'x', s: dx >= 0 ? 1 : -1 } : { ax: 'y', s: dy >= 0 ? 1 : -1 };
+    }
+    /** The ledge across the cell boundary ahead (within `reach`) with a lip in [lo, hi] above the feet. */
+    ledgeAhead(lo, hi, reach) {
+      const p = this.player, cfg = this.cfg, { ax, s } = this.facingAxis();
+      const pos = ax === 'x' ? p.x : p.y;
+      const bound = s > 0 ? Math.floor(pos) + 1 : Math.floor(pos);
+      if (Math.abs(bound - pos) > reach) return null;
+      const cx = ax === 'x' ? (s > 0 ? bound : bound - 1) : Math.floor(p.x);
+      const cy = ax === 'y' ? (s > 0 ? bound : bound - 1) : Math.floor(p.y);
+      const C = this.world.cellAt(cx, cy);
+      if (!C) return null;
       const here = this.supportAt(p.x, p.y);
-      for (const s of C.spans) {
-        if (s.fl < lo || s.fl > hi) continue;
-        if (s.cl - s.fl < cfg.height + 0.02) continue;
-        if (fromAir && occ === s) continue;
-        if (here.cz < s.fl + cfg.height - 0.02) continue; // no room to pull up
-        const ex = p.x + dx * (dist + 0.34), ey = p.y + dy * (dist + 0.34);
-        if (this.blockedAtDest(ex, ey, s.fl)) continue;
-        const dh = s.fl - p.z;
-        p.act = { kind: 'climb', t: 0, dur: Math.max(cfg.climbTimeMin, 0.25 + Math.max(0, dh) * cfg.climbTimePerUnit), x0: p.x, y0: p.y, z0: p.z, x1: ex, y1: ey, z1: s.fl };
-        p.vx = p.vy = p.vz = 0; p.onGround = false;
-        this.sound(dh > 1 ? 'climb' : 'grab', undefined, undefined, 0.7);
-        return true;
+      for (const sp of C.spans) {
+        if (sp.fl < p.z + lo - 1e-6 || sp.fl > p.z + hi + 1e-6) continue;
+        if (sp.cl - sp.fl < cfg.height + 0.05 || sp.hazard === 'lava' || sp.hazard === 'abyss') continue;
+        if (here.cz < sp.fl + cfg.height - 0.02) continue; // no room to pull up in your own column
+        const ex = ax === 'x' ? bound + s * 0.35 : p.x, ey = ax === 'y' ? bound + s * 0.35 : p.y;
+        if (this.blockedAtDest(ex, ey, sp.fl)) continue;
+        const hx = ax === 'x' ? bound - s * cfg.hangOut : p.x, hy = ax === 'y' ? bound - s * cfg.hangOut : p.y;
+        return { span: sp, z: sp.fl, ex, ey, hx, hy };
       }
-      return false;
+      return null;
+    }
+    /** Space facing a ledge 0.35..1.75 above the feet: climb onto it. */
+    tryClimb(dry = false) {
+      const p = this.player, cfg = this.cfg;
+      const L = this.ledgeAhead(cfg.climbMin, cfg.climbMax, cfg.climbReach);
+      if (!L) return false;
+      if (dry) return true;
+      p.act = { kind: 'climb', t: 0, dur: cfg.climbTime, x0: p.x, y0: p.y, z0: p.z, x1: L.ex, y1: L.ey, z1: L.z };
+      p.vx = p.vy = p.vz = 0; p.onGround = false; p.snapUntil = -1;
+      this.sound(L.z - p.z > 0.9 ? 'climb' : 'grab', undefined, undefined, 0.7);
+      return true;
+    }
+    /** In the air: catch a lip 0.10..0.90 above the feet. C held: hang there; else pull straight up. */
+    tryCatch() {
+      const p = this.player, cfg = this.cfg;
+      const L = this.ledgeAhead(cfg.catchLow, cfg.catchHigh, cfg.radius + 0.03); // on contact with the face
+      if (!L) return false;
+      p.vx = p.vy = p.vz = 0; p.kvx = p.kvy = 0; p.onGround = false; p.snapUntil = -1; p.upJump = false;
+      const hz = L.z - cfg.hangDepth;
+      const ledge = { z: L.z, ex: L.ex, ey: L.ey };
+      if (p.careful) p.act = { kind: 'lower', t: 0, dur: 0.15, x0: p.x, y0: p.y, z0: p.z, x1: L.hx, y1: L.hy, z1: hz, ledge };
+      else p.act = { kind: 'climb', t: 0, dur: cfg.climbTime * Math.max(0.5, (L.z - p.z + 0.4) / 1.3), x0: p.x, y0: p.y, z0: p.z, x1: L.ex, y1: L.ey, z1: L.z };
+      this.sound('grab', undefined, undefined, 0.8);
+      this.face('ouch');
+      return true;
     }
     blockedAtDest(x, y, z) {
       const r = this.cfg.radius;
       for (let cy = Math.floor(y - r); cy <= Math.floor(y + r); cy++) for (let cx = Math.floor(x - r); cx <= Math.floor(x + r); cx++) {
         const c = this.world.cellAt(cx, cy);
-        if (!c) return true;
-        const s = this.occupy(c, z);
-        if (!s) return true;
+        if (!c || !this.occupy(c, z)) return true;
       }
       return false;
     }
-    /** Careful step over an edge: lower yourself and let go. */
-    tryHangDrop() {
-      const p = this.player, cfg = this.cfg;
-      const dx = Math.cos(p.ang), dy = Math.sin(p.ang);
-      for (const reach of [0.55, 0.7]) {
-        const ex = p.x + dx * reach, ey = p.y + dy * reach;
-        const cell = this.cellAt(ex, ey);
-        if (!cell) continue;
+    /** Careful-stopped at an edge: lower yourself over it into a hang (facing the drop). */
+    tryLower(dry = false) {
+      const p = this.player, cfg = this.cfg, fr = cfg.footRadius;
+      const f = this.facingAxis();
+      const other = f.ax === 'x' ? { ax: 'y', s: Math.sin(p.ang) >= 0 ? 1 : -1 } : { ax: 'x', s: Math.cos(p.ang) >= 0 ? 1 : -1 };
+      for (const { ax, s } of [f, other]) {
+        const pos = ax === 'x' ? p.x : p.y;
+        const lip = s > 0 ? Math.floor(pos - fr) + 1 : Math.floor(pos + fr);
+        if (Math.abs(lip - pos) > fr + 0.05) continue;
+        const hx = ax === 'x' ? lip + s * cfg.hangOut : p.x, hy = ax === 'y' ? lip + s * cfg.hangOut : p.y;
+        const cell = this.cellAt(hx, hy);
         const below = R.spanBelow(cell, p.z - cfg.stepUp);
-        if (!below || below.cl < p.z + cfg.height) continue;
+        if (!below || below.cl < p.z + 0.2) continue;
         const depth = p.z - below.fl;
         if (depth <= cfg.stepUp) continue;
-        const z1 = p.z - Math.min(cfg.hangDrop, depth - 0.05);
-        // the body must fit in that column while hanging
-        const r = cfg.radius; let ok = true;
-        for (let cy = Math.floor(ey - r); cy <= Math.floor(ey + r) && ok; cy++) for (let cx = Math.floor(ex - r); cx <= Math.floor(ex + r); cx++) {
+        const toFloor = depth <= cfg.hangDepth + 0.05;
+        const z1 = toFloor ? below.fl : p.z - cfg.hangDepth;
+        let ok = true;
+        const r = cfg.radius;
+        for (let cy = Math.floor(hy - r); cy <= Math.floor(hy + r) && ok; cy++) for (let cx = Math.floor(hx - r); cx <= Math.floor(hx + r); cx++) {
           const c = this.world.cellAt(cx, cy);
-          const s = c && (R.spanAt(c, z1 + 0.01) || null);
-          if (!s || s.cl < z1 + cfg.height) { ok = false; break; }
+          const sp = c && R.spanAt(c, z1 + 0.01);
+          if (!sp || sp.cl < z1 + cfg.height) { ok = false; break; }
         }
         if (!ok) continue;
-        p.act = { kind: 'hang', t: 0, dur: 0.55, x0: p.x, y0: p.y, z0: p.z, x1: ex, y1: ey, z1 };
+        if (dry) return true;
+        const ledge = { z: p.z, ex: ax === 'x' ? lip - s * 0.35 : p.x, ey: ax === 'y' ? lip - s * 0.35 : p.y };
+        p.act = { kind: 'lower', t: 0, dur: cfg.lowerTime, x0: p.x, y0: p.y, z0: p.z, x1: hx, y1: hy, z1, ledge, toFloor };
         p.vx = p.vy = p.vz = 0; p.onGround = false;
         this.sound('grab', undefined, undefined, 0.6);
         return true;
       }
       return false;
     }
-    updateAction(dt) {
-      const p = this.player, a = p.act;
+    updateAction(dt, inp, fwdEdge) {
+      const p = this.player, a = p.act, cfg = this.cfg;
       a.t += dt;
-      const f = Math.min(1, a.t / a.dur);
+      const f = a.dur ? Math.min(1, a.t / a.dur) : 1;
       if (a.kind === 'climb') {
-        const up = U.smooth(Math.min(1, f / 0.65)), fwd = U.smooth(Math.max(0, (f - 0.55) / 0.45));
-        p.z = a.z0 + (a.z1 - a.z0) * up + (f < 0.65 ? 0 : 0);
+        // rise in your own column first, then step onto the ledge (never through its lip)
+        const up = U.smooth(Math.min(1, f / 0.6)), fwd = U.smooth(Math.max(0, (f - 0.6) / 0.4));
+        p.z = a.z0 + (a.z1 - a.z0) * up;
         p.x = a.x0 + (a.x1 - a.x0) * fwd; p.y = a.y0 + (a.y1 - a.y0) * fwd;
-        if (f >= 1) { p.act = null; p.z = a.z1; p.onGround = true; p.airPeak = p.z; p.lastGround = this.time; p.vz = 0; }
-      } else if (a.kind === 'hang') {
-        const fwd = U.smooth(Math.min(1, f / 0.5)), down = U.smooth(Math.max(0, (f - 0.35) / 0.65));
-        p.x = a.x0 + (a.x1 - a.x0) * fwd; p.y = a.y0 + (a.y1 - a.y0) * fwd;
+        if (f >= 1) { p.act = null; p.z = a.z1; p.onGround = true; p.fallFrom = p.z; p.lastGround = this.time; p.vz = 0; }
+      } else if (a.kind === 'lower') {
+        const out = U.smooth(Math.min(1, f / 0.45)), down = U.smooth(Math.max(0, (f - 0.35) / 0.65));
+        p.x = a.x0 + (a.x1 - a.x0) * out; p.y = a.y0 + (a.y1 - a.y0) * out;
         p.z = a.z0 + (a.z1 - a.z0) * down;
-        if (f >= 1) { p.act = null; p.onGround = false; p.vz = 0; p.airPeak = p.z; this.sound('drop', undefined, undefined, 0.5); }
+        if (f >= 1) {
+          if (a.toFloor) { p.act = null; p.onGround = true; p.fallFrom = p.z; p.lastGround = this.time; this.sound('drop', undefined, undefined, 0.4); }
+          else p.act = { kind: 'hang', t: 0, x: a.x1, y: a.y1, z: a.z1, ledge: a.ledge };
+        }
+      } else if (a.kind === 'hang') {
+        p.x = a.x; p.y = a.y; p.z = a.z;
+        if ((p.jumpBuf >= 0 && this.time - p.jumpBuf <= cfg.jumpBuffer) || (fwdEdge && a.t > 0.2)) {
+          p.jumpBuf = -1;
+          if (this.blockedAtDest(a.ledge.ex, a.ledge.ey, a.ledge.z)) { this.sound('noway', undefined, undefined, 0.5); return; }
+          p.act = { kind: 'climb', t: 0, dur: cfg.pullTime, x0: p.x, y0: p.y, z0: p.z, x1: a.ledge.ex, y1: a.ledge.ey, z1: a.ledge.z };
+          this.sound('climb', undefined, undefined, 0.6);
+        } else if (!p.careful || (inp.fwd || 0) < 0) {
+          // let go: the fall is measured from the hang
+          p.act = null; p.onGround = false; p.vz = 0; p.vx = p.vy = 0; p.fallFrom = p.z; p.airCap = 0.3; p.screamed = false;
+          this.sound('drop', undefined, undefined, 0.5);
+        }
       }
     }
 
-    /** Things that happen after moving: view height, spans entered, hazards. */
+    /** After moving: view height, auto-peek, hints, spans entered, hazards. */
     afterMove(dt) {
       const p = this.player, cfg = this.cfg;
       const target = p.z + cfg.eyeHeight;
       if (p.act) p.viewZ = target;
       else if (p.viewZ < target && p.onGround) p.viewZ = Math.min(target, p.viewZ + Math.max(0.8 * dt, (target - p.viewZ) * Math.min(1, dt * 10)));
       else p.viewZ = target;
-      p.dip = Math.max(0, p.dip - dt * 0.8);
+      p.dip = Math.max(0, p.dip - dt * 0.75);
       const sup = this.supportAt(p.x, p.y);
-      if (p.viewZ > sup.cz - 0.06) p.viewZ = Math.max(p.z + 0.08, sup.cz - 0.06);
+      if (p.viewZ > sup.cz - 0.05) p.viewZ = Math.max(p.z + 0.08, sup.cz - 0.05);
+      // what the keys would do here, and where to look (pitch in view pixels at 168 lines)
+      p.hintT -= dt;
+      if (p.hintT <= 0) {
+        p.hintT = 0.1;
+        p.hint = null;
+        if (p.act && p.act.kind === 'hang') p.hint = 'HANGING';
+        else if (p.onGround && !p.act) {
+          if (p.edgeStop && p.careful) p.hint = this.tryLower(true) ? 'HANG' : 'EDGE';
+          else if (this.tryClimb(true)) p.hint = 'CLIMB';
+          else if (this.drinkAhead()) p.hint = 'DRINK';
+          else if (Math.hypot(p.vx, p.vy) > 1.5 && this.dropAhead(1.2) > 0) p.hint = 'JUMP';
+        }
+      }
+      let want = 0;
+      if (p.act && (p.act.kind === 'hang' || p.act.kind === 'lower')) want = -60;
+      else if (p.careful && p.edgeStop) want = -55;
+      else if (!p.onGround && p.vz < -1 && !p.act) want = -26;
+      else if (p.onGround && Math.hypot(p.vx, p.vy) > 0.5 && this.dropAhead(1.0) > 0) want = -18;
+      else if (p.hint === 'CLIMB') want = 30;
+      p.autoPitch += (want - p.autoPitch) * Math.min(1, dt * (want === 0 ? 5 : 7));
+
       const foot = this.footSpan();
       if (foot && foot !== this.lastSpan) { this.lastSpan = foot; this.enterSpan(foot); }
       if (p.onGround && !p.act) {
-        if (foot && foot.loose && Math.abs(foot.fl - p.z) < 0.08) this.triggerLoose(foot);
-        this.updatePlates(foot && Math.abs(foot.fl - p.z) < 0.1 ? foot : null);
-      } else this.updatePlates(null);
+        const feet = this.footSpans();
+        for (const s of feet) if (s.loose) this.triggerLoose(s);
+        this.updatePlates(feet);
+      } else this.updatePlates([]);
       if (p.alive) this.applyHazards(dt, foot);
       if (foot && foot.exit && p.onGround && !this.levelDone) {
         this.levelDone = true;
@@ -671,9 +903,8 @@
     applyHazards(dt, s) {
       const p = this.player, cfg = this.cfg;
       if (!s) return;
-      // squeezed by a crusher
       if (s.anim && s.anim.type === 'crusher' && s.anim.slam && s.cl - p.z < cfg.height * 0.95) { this.kill(s.anim.msg || 'Crushed!'); return; }
-      if (s.hazard === 'abyss') { if (p.z < p.airPeak - 3) this.kill('You fell into the abyss.'); return; }
+      if (s.hazard === 'abyss') { if (p.z < p.fallFrom - cfg.fallHurt) this.kill('You fell into the abyss.'); return; }
       const onFloor = p.z <= s.fl + 0.03;
       if (!s.hazard || !onFloor) { this.hazTimer = 0; return; }
       const h = this.hazardDefs[s.hazard];
@@ -689,12 +920,28 @@
       }
     }
 
-    useAction() {
+    /** The drinkable bottle in front of you (within drinkRange), if any. */
+    drinkAhead() {
       const p = this.player, cfg = this.cfg;
       let best = null, bd = 1e9;
       for (const e of this.ents) {
-        if (e.gone || !e.def.use) continue;
-        if (Math.abs(e.z - p.z) > 1.2) continue;
+        if (e.gone || e.type !== 'item' || !this.isDrink(e.spec.item)) continue;
+        if (Math.abs(e.z0 - p.z) > 0.5) continue;
+        const d = Math.hypot(p.x - e.x, p.y - e.y);
+        if (d > cfg.drinkRange + 0.2) continue;
+        const a = Math.abs(U.angDiff(p.ang, Math.atan2(e.y - p.y, e.x - p.x)));
+        if ((a < 0.7 || d < 0.45) && d < bd) { bd = d; best = e; }
+      }
+      return best;
+    }
+    useAction() {
+      const p = this.player, cfg = this.cfg;
+      const drink = this.drinkAhead();
+      if (drink) { drink.def.use(drink, this); return; }
+      let best = null, bd = 1e9;
+      for (const e of this.ents) {
+        if (e.gone || !e.def.use || e.type === 'item') continue;
+        if (Math.abs(e.z - p.z) > 1.0) continue;
         const d = Math.hypot(p.x - e.x, p.y - e.y);
         if (d > cfg.useRange + e.radius) continue;
         const a = Math.abs(U.angDiff(p.ang, Math.atan2(e.y - p.y, e.x - p.x)));
@@ -708,7 +955,6 @@
         if (cx === pcx && cy === pcy) continue;
         const c = this.world.cellAt(cx, cy);
         if (!c) break;
-        // a door whose opening is at our height
         for (const sp of c.spans) if (sp.door && sp.fl <= p.z + cfg.stepUp && sp.doorTop >= p.z + 0.3 && sp.door.state !== 'open' && sp.door.state !== 'opening') { this.useDoor(sp); return; }
         const band = c.band[this.world.band(eyeZ)];
         if (band && band.lever && !R.spanAt(c, eyeZ)) { this.pullLever(band, c); return; }
@@ -716,22 +962,6 @@
         if (!R.spanAt(c, eyeZ)) break;
       }
       this.sound('noway', undefined, undefined, 0.5);
-    }
-
-    /** Declarative lever: { opens: tag, closes: tag, lift: {tag, to, prop, speed}, msg, script, once }. */
-    pullLever(band, c) {
-      const L = band.lever;
-      if (L.on && L.once !== false) { this.msg(L.doneMsg || 'The lever will not move any further.'); this.sound('noway'); return; }
-      L.on = !L.on;
-      band.wall = R.textures.id(L.on ? (L.texOn || 'LEVER_DOWN') : (L.texOff || 'LEVER_UP'));
-      this.sound('switch', c.x + 0.5, c.y + 0.5);
-      if (L.on) {
-        if (L.opens) this.openDoor(L.opens, L.hold || 0);
-        if (L.closes) this.closeDoor(L.closes);
-        if (L.lift) this.moveSpans(L.lift.tag, L.lift.prop || 'fl', L.lift.to, L.lift.speed || 0.8);
-      } else if (L.opens) this.closeDoor(L.opens);
-      if (L.msg) this.msg(L.msg);
-      if (L.script) this.runScript(L.script, { cell: c, band });
     }
 
     /** Build the sprite list for the renderer (culling cells not rendered this frame). */
@@ -751,7 +981,7 @@
         const c = this.world.cellAt(Math.floor(e.hang ? e.x0 : e.x), Math.floor(e.hang ? e.y0 : e.y));
         const s = c && (R.spanAt(c, e.z0 + 0.02) || R.spanBelow(c, e.z0 + 0.02));
         let z;
-        if (e.hang || spr.hang) z = (s ? s.cl : e.z0 + 1.4) - spr.h / 64 * spr.scale * (e.scale || 1) - (e.spec.drop || 0);
+        if (e.hang || spr.hang) z = (s ? s.cl : e.z0 + 1.25) - spr.h / 64 * spr.scale * (e.scale || 1) - (e.spec.drop || 0);
         else if (e.free) z = e.z;
         else z = (s ? s.fl : e.z0) + e.zOff + (e.bob ? 0.04 + 0.035 * Math.sin(this.time * 3 + e.id) : 0);
         if (!e.free) e.z = e.hang ? (s ? s.fl : e.z0) : z;
@@ -764,7 +994,8 @@
     // ============================================================== save/load
     /** Saves are made at level starts: level index + what carries over. */
     serialize() {
-      return { v: 2, campaign: this.camp.id, level: this.levelIndex, persist: this.persist, savedAt: Date.now() };
+      const persist = Object.assign(JSON.parse(JSON.stringify(this.levelStart.persist)), { clock: this.persist.clock, deaths: this.persist.deaths });
+      return { v: 2, campaign: this.camp.id, level: this.levelIndex, persist, savedAt: Date.now() };
     }
     deserialize(s) {
       if (!s || s.campaign !== this.camp.id) throw new Error('Save belongs to another game');

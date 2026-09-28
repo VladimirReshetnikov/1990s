@@ -8,8 +8,13 @@
  *
  *   { fl: 0, cl: 1.4, ftex, ctex, low, up, wall, light, ... }  open space
  *   { solid: true, wall: 'TEX' }                                rock in this band
- *   { pit: true, cl: 1.4 }       no floor: merges with the span below (a hole);
- *                                with nothing below it is a bottomless abyss
+ *   { pit: true, cl: 1.25 }      no floor: merges with the span below (a hole);
+ *                                it must have open space below it...
+ *   { pit: true, abyss: true }   ...unless it is a declared bottomless abyss
+ *
+ * Grids are strict: every layer map is exactly W x H printable ASCII (unless it
+ * gives an `origin`), layer z values are multiples of camp.storey, and a loose
+ * floor must have open space (or an abyss) below it.
  *
  * Heights are relative to the layer's z. The space between one layer's z and
  * the next is that layer's BAND; rock faces inside a band take their texture
@@ -68,18 +73,19 @@
       seen: false, dyn: false,
     };
     if (t.door) {
-      const d = t.door, h = d.h ?? Math.min(1.0, t.cl - t.fl);
+      const d = t.door, h = d.h ?? Math.min(1.2, t.cl - t.fl);
       s.doorTop = s.fl + h;
       s.door = {
         key: d.key || null, h, tex: texId(d.tex || 'DOOR_WOOD'), speed: d.speed ?? 1.4, closeSpeed: d.closeSpeed ?? 0.5,
         secret: !!d.secret, remote: !!d.remote, msg: d.msg || null, openMsg: d.openMsg || null,
         script: d.script || null, sound: d.sound || 'door', group: d.group || t.tag || null,
-        state: d.open ? 'open' : 'closed', closeAfter: d.closeAfter || 0, unlocked: false,
+        state: d.open ? 'open' : 'closed', closeAfter: d.closeAfter || 0, unlocked: false, see: !!d.see,
       };
       s.cl = d.open ? s.doorTop : s.fl;
       s.dyn = true;
     }
-    if (t.loose) s.loose = { delay: t.loose.delay ?? 0.55, state: 'idle', t: 0 };
+    if (t.loose) s.loose = { delay: t.loose.delay ?? null, state: 'idle', t: 0 };
+    s.abyss = !!t.abyss;
     if (t.plate) s.plate = Object.assign({ pressed: false }, t.plate);
     if (t.anim) {
       if (!R.cellAnims.has(t.anim.type)) throw new Error(`Unknown cell anim "${t.anim.type}"`);
@@ -103,6 +109,12 @@
       const legend = Object.assign({}, baseLegend, L.legend || {});
       const chars = new Array(W * Hh).fill(' ');
       const [ox, oy] = L.origin || [0, 0];
+      if (camp.storey && Math.abs(L.z / camp.storey - Math.round(L.z / camp.storey)) > 1e-6) throw new Error(`Level "${lv.id}" layer ${k}: z=${L.z} is not a multiple of the storey height ${camp.storey}`);
+      if (!L.origin) {
+        if (L.map.length !== Hh) throw new Error(`Level "${lv.id}" layer ${k} (z=${L.z}): ${L.map.length} rows, expected exactly ${Hh}`);
+        L.map.forEach((row, ry) => { if (row.length !== W) throw new Error(`Level "${lv.id}" layer ${k} (z=${L.z}) row ${ry}: ${row.length} chars, expected exactly ${W}: "${row}"`); });
+      }
+      L.map.forEach((row, ry) => { if (!/^[\x20-\x7e]*$/.test(row)) throw new Error(`Level "${lv.id}" layer ${k} row ${ry}: only printable ASCII allowed`); });
       L.map.forEach((row, ry) => {
         [...row].forEach((ch, rx) => {
           const x = ox + rx, y = oy + ry;
@@ -189,10 +201,12 @@
             cell.band[s.band].span = below;
             continue;
           }
+          if (!s.abyss && !camp.loosePits) throw new Error(`Level "${lv.id}" (${x},${y}) layer z=${lv.layers[s.band].z}: a pit with nothing below it. Open the layer below, or use an abyss (pit + abyss: true).`);
           s.fl = s.baseFl = -60; s.hazard = s.hazard || 'abyss'; s.ftex = texId('ABYSS');
           spans.push(s);
           continue;
         }
+        if (s.loose && !spans.length) throw new Error(`Level "${lv.id}" (${x},${y}) layer z=${lv.layers[s.band].z}: a loose floor over solid rock (it would fall into nothing). Put open space or an abyss below it.`);
         const below = spans[spans.length - 1];
         if (below && below.cl > s.fl + 1e-6) {
           throw new Error(`Level "${lv.id}" (${x},${y}): the span from layer z=${lv.layers[s.band].z} (floor ${s.fl}) cuts into the span below (ceiling ${below.cl}). Use ' ' or a pit in the upper layer, or lower the ceiling below.`);

@@ -20,12 +20,15 @@
   R.VERSION = '1.0.0';
 
   class Registry {
-    constructor(kind) {
+    constructor(kind, opts = {}) {
       this.kind = kind;
       this.map = new Map();
       this.order = [];
+      this.strict = !!opts.strict;
     }
-    register(name, def) {
+    /** Register a definition; a strict registry refuses duplicates unless opts.override. */
+    register(name, def, opts = {}) {
+      if (this.strict && this.map.has(name) && !opts.override) throw new Error(`Duplicate ${this.kind}: "${name}"`);
       if (!this.map.has(name)) this.order.push(name);
       this.map.set(name, def);
       return def;
@@ -228,7 +231,7 @@
   // ------------------------------------------------------------ registries
   R.campaigns = new Registry('campaign');
   /** Levels are registered one file each; campaigns pick them up by `order`. */
-  R.levels = new Registry('level');
+  R.levels = new Registry('level', { strict: true });
   R.defineLevel = function (def) {
     if (!def || !def.id) throw new Error('Level needs an id');
     return R.levels.register(def.id, def);

@@ -6,11 +6,17 @@
  * are drawn as walls. Floors and ceilings are drawn per window span. This gives
  * room-over-room, pits you can look down into, galleries and ledges, with the
  * same palette/colormap lighting, sky, fog and depth-buffered sprites as before.
+ *
+ * Thin masked walls sit on a cell's mid-plane, across the corridor: see-through
+ * portcullis bars (door.see) and slicer jaws (span.blade). They are collected
+ * while tracing a column and drawn far-to-near over it afterwards. The top edge
+ * of every ledge face gets a bright lip so drops read at a glance.
  */
 (function (R) {
   'use strict';
   const MAXSTEPS = 110;
   const MAXWIN = 24;
+  const MAXTHIN = 8;
   const OFF = 64 * 4096; // keeps texel accumulators positive so |0 == floor
 
   class Renderer {
@@ -23,6 +29,18 @@
       this.wt = new Int32Array(MAXWIN); this.wb = new Int32Array(MAXWIN); this.ws = new Array(MAXWIN);
       this.nt = new Int32Array(MAXWIN); this.nb = new Int32Array(MAXWIN); this.ns = new Array(MAXWIN);
       this.pieces = [];
+      this.mkD = new Float64Array(MAXTHIN); this.mkT = new Int32Array(MAXTHIN); this.mkB = new Int32Array(MAXTHIN);
+      this.mkU = new Int32Array(MAXTHIN); this.mkL = new Int32Array(MAXTHIN); this.mkLo = new Float64Array(MAXTHIN); this.mkHi = new Float64Array(MAXTHIN);
+      this.mkData = new Array(MAXTHIN); this.mkTex = new Array(MAXTHIN); this.mkSet = new Array(MAXTHIN); this.mkStretch = new Uint8Array(MAXTHIN);
+      this.nm = 0;
+    }
+    /** Which mid-plane a thin wall in span s lies on: 'x' (x = const) or 'y'. Across the corridor. */
+    thinAxis(world, s) {
+      if (s.thinAxis) return s.thinAxis;
+      const c = s.cell, z0 = s.fl + 0.1, z1 = s.fl + 0.5;
+      const open = (dx, dy) => { const n = world.cellAt(c.x + dx, c.y + dy); return !!n && n.spans.some(q => q.fl < z1 && Math.max(q.cl, q.door ? q.doorTop : 0) > z0); };
+      s.thinAxis = !open(0, -1) && !open(0, 1) ? 'x' : !open(-1, 0) && !open(1, 0) ? 'y' : (open(-1, 0) || open(1, 0) ? 'x' : 'y');
+      return s.thinAxis;
     }
     setSize(w, h, viewH) {
       this.w = w; this.h = h; this.viewH = viewH;
@@ -78,6 +96,8 @@
         let n = 1;
         wt[0] = 0; wb[0] = VH; ws[0] = camSpan;
         let skyU = -1;
+        this.nm = 0;
+        if (camSpan.blade || (camSpan.door && camSpan.door.see && camSpan.cl < camSpan.doorTop - 1e-3)) this.addThin(world, camSpan, cx0, cy0, 0, VH, rdx, rdy, px, py, hz, eye, lightAt);
         const skyCol = () => { let a = (cam.ang + this.colAngle[col]) / (Math.PI * 2); a -= Math.floor(a); return ((a * skyW * 2) | 0) % skyW; };
 
         for (let steps = 0; steps < MAXSTEPS && n > 0; steps++) {
@@ -93,11 +113,12 @@
             const S = ws[i];
             let t = wt[i], b = wb[i];
             const set = S.fog ? S1 : S0, Ls = S.light;
-            if (!S.sky && S.cl > eye) {
-              let ye = Math.ceil(hz + (eye - S.cl) * k - 0.5);
+            const Scl = S.door && S.door.see ? S.doorTop : S.cl;
+            if (!S.sky && Scl > eye) {
+              let ye = Math.ceil(hz + (eye - Scl) * k - 0.5);
               if (ye > b) ye = b;
               if (ye > t) {
-                const tx0 = tex[S.ctex], data = tx0.data, em = tx0.emissive, hgt = S.cl - eye;
+                const tx0 = tex[S.ctex], data = tx0.data, em = tx0.emissive, hgt = Scl - eye;
                 for (let r = t; r < ye; r++) {
                   const rd = hgt * proj / (hz - r - 0.5);
                   const tx = ((px + rdx * rd) * 64) & 63, ty = ((py + rdy * rd) * 64) & 63;
@@ -140,17 +161,21 @@
             const S = ws[i], t = wt[i], b = wb[i];
             const set = S.fog ? S1 : S0;
             const Lw = lightAt(S.light + (side === 0 ? contrast : -contrast), dist);
-            let zc = S.cl;
+            let zc = S.door && S.door.see ? S.doorTop : S.cl;
             for (let j = sp.length - 1; j >= 0 && zc > S.fl; j--) {
               const Nj = sp[j];
               if (Nj.fl >= zc) continue;
-              const sLo = Nj.cl > S.fl ? Nj.cl : S.fl;
+              const see = Nj.door && Nj.door.see, Ncl = see ? Nj.doorTop : Nj.cl;
+              const sLo = Ncl > S.fl ? Ncl : S.fl;
               if (zc > sLo) this.solid(buf, col, t, b, world, N, sLo, zc, u, dist, hz, eye, Lw, set);
-              const oHi = zc < Nj.cl ? zc : Nj.cl, oLo = Nj.fl > S.fl ? Nj.fl : S.fl;
+              const oHi = zc < Ncl ? zc : Ncl, oLo = Nj.fl > S.fl ? Nj.fl : S.fl;
               if (oHi > oLo) {
                 let r0 = Math.ceil(hz + (eye - oHi) * k - 0.5), r1 = Math.ceil(hz + (eye - oLo) * k - 0.5);
                 if (r0 < t) r0 = t; if (r1 > b) r1 = b;
-                if (r1 > r0 && q < MAXWIN) { nt[q] = r0; nb[q] = r1; ns[q] = Nj; q++; Nj.seen = true; }
+                if (r1 > r0 && q < MAXWIN) {
+                  nt[q] = r0; nb[q] = r1; ns[q] = Nj; q++; Nj.seen = true;
+                  if ((see && Nj.cl < Nj.doorTop - 1e-3) || Nj.blade) this.addThin(world, Nj, mapX, mapY, r0, r1, rdx, rdy, px, py, hz, eye, lightAt);
+                }
               }
               zc = Nj.fl < zc ? Nj.fl : zc;
             }
@@ -176,8 +201,50 @@
             for (let r = wt[i]; r < wb[i]; r++) { buf[r * W + col] = c; zb[r * W + col] = 1e9; }
           }
         }
+        if (this.nm) this.drawThin(buf, col, hz, eye);
       }
       this.wt = wt; this.wb = wb; this.ws = ws; this.nt = nt; this.nb = nb; this.ns = ns;
+    }
+
+    /** Queue the thin wall of span s (cell cx, cy) if this column's ray crosses its mid-plane. */
+    addThin(world, s, cx, cy, t, b, rdx, rdy, px, py, hz, eye, lightAt) {
+      if (this.nm >= MAXTHIN) return;
+      const ax = this.thinAxis(world, s);
+      let d, w;
+      if (ax === 'x') { if (Math.abs(rdx) < 1e-6) return; d = (cx + 0.5 - px) / rdx; w = py + d * rdy; if (Math.floor(w) !== cy) return; }
+      else { if (Math.abs(rdy) < 1e-6) return; d = (cy + 0.5 - py) / rdy; w = px + d * rdx; if (Math.floor(w) !== cx) return; }
+      if (d < 0.05) return;
+      let lo, hi, tx, data, stretch;
+      if (s.blade) { lo = s.fl; hi = s.cl; tx = this.bank.tex[s.blade.tex]; data = tx.frames[Math.min(tx.frames.length - 1, s.blade.frame | 0)]; stretch = 1; }
+      else { lo = s.cl; hi = s.doorTop; tx = this.bank.tex[s.door.tex]; data = tx.data; stretch = 0; }
+      if (hi - lo < 1e-3) return;
+      const k = this.proj / d;
+      let r0 = Math.ceil(hz + (eye - hi) * k - 0.5), r1 = Math.ceil(hz + (eye - lo) * k - 0.5);
+      if (r0 < t) r0 = t; if (r1 > b) r1 = b;
+      if (r1 <= r0) return;
+      const m = this.nm++;
+      this.mkD[m] = d; this.mkT[m] = r0; this.mkB[m] = r1; this.mkU[m] = ((w - Math.floor(w)) * 64) | 0;
+      this.mkL[m] = lightAt(s.light, d); this.mkLo[m] = lo; this.mkHi[m] = hi;
+      this.mkTex[m] = tx; this.mkData[m] = data; this.mkSet[m] = this.pal.shades[s.fog ? 1 : 0]; this.mkStretch[m] = stretch;
+    }
+    /** Draw this column's queued thin walls, far to near; texel 255 is see-through. */
+    drawThin(buf, col, hz, eye) {
+      const W = this.w, zb = this.zbuf;
+      for (let m = this.nm - 1; m >= 0; m--) {
+        const d = this.mkD[m], k = d / this.proj, tx = this.mkTex[m], data = this.mkData[m], th = tx.h, hm = tx.hmask;
+        const colOff = (this.mkU[m] & tx.wmask) * th, set = this.mkSet[m], base = (tx.emissive ? 31 : this.mkL[m]) * 256;
+        const y0 = this.mkT[m], lo = this.mkLo[m], hi = this.mkHi[m], stretch = this.mkStretch[m];
+        let v, dv;
+        if (stretch) { v = (hi - (eye - (y0 + 0.5 - hz) * k)) / (hi - lo) * th; dv = k * th / (hi - lo); }
+        else { v = (lo - (eye - (y0 + 0.5 - hz) * k)) * 64 + th + OFF; dv = k * 64; }
+        for (let r = y0; r < this.mkB[m]; r++) {
+          let vi = v | 0;
+          if (stretch) vi = vi < 0 ? 0 : vi >= th ? th - 1 : vi; else vi &= hm;
+          const texel = data[colOff + vi];
+          if (texel !== 255) { buf[r * W + col] = set[base + texel]; zb[r * W + col] = d; }
+          v += dv;
+        }
+      }
     }
 
     /** Draw the solid part of cell N between heights lo..hi, clipped to rows [t, b). */
@@ -190,21 +257,23 @@
         const mode = pieces[p + 3];
         const tx = tex[pieces[p + 2]];
         if (mode === 0) this.wall(buf, col, r0, r1, tx, u, 0, true, dist, hz, eye, L, set);
-        else this.wall(buf, col, r0, r1, tx, u, pieces[p + 4], mode === 2, dist, hz, eye, L, set);
+        else this.wall(buf, col, r0, r1, tx, u, pieces[p + 4], mode === 2, dist, hz, eye, L, set, mode === 1 && pieces[p + 1] >= pieces[p + 4] - 1e-4);
       }
     }
 
     /** Draw a vertical wall slice. peg: world z where the texture is anchored. */
-    wall(buf, col, y0, y1, t, u, peg, bottomPeg, dist, hz, eye, L, set) {
+    wall(buf, col, y0, y1, t, u, peg, bottomPeg, dist, hz, eye, L, set, lip = false) {
       const W = this.w, zb = this.zbuf, data = t.data, th = t.h, hm = t.hmask;
       const colOff = (u & t.wmask) * th;
       const k = dist / this.proj;
       let v = (peg - (eye - (y0 + 0.5 - hz) * k)) * 64 + (bottomPeg ? th : 0) + OFF;
       const dv = k * 64;
       const base = (t.emissive ? 31 : L) * 256;
+      // the lip: the top 3 texels under a floor edge, lit brighter
+      const lipEnd = lip ? OFF + 3 : -1, lipBase = Math.min(31, L + 9) * 256;
       for (let r = y0; r < y1; r++) {
         const i = r * W + col;
-        buf[i] = set[base + data[colOff + ((v | 0) & hm)]];
+        buf[i] = set[(v < lipEnd ? lipBase : base) + data[colOff + ((v | 0) & hm)]];
         zb[i] = dist;
         v += dv;
       }

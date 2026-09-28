@@ -18,7 +18,8 @@
       this.keys = new Set();
       this.pressed = [];
       this.audio = new R.AudioSys();
-      this.opts = Object.assign({ music: true, sound: true, detail: 200, alwaysRun: false, bob: true, timeLimit: false }, this.loadJSON(OPT_KEY) || {});
+      this.opts = Object.assign({ music: true, sound: true, detail: 200, alwaysRun: true, bob: true, peek: true }, this.loadJSON(OPT_KEY) || {});
+      this.acc = 0;
       this.audio.setMusic(this.opts.music); this.audio.setSfx(this.opts.sound);
       this.state = 'title';
       this.menuCursor = 0;
@@ -33,6 +34,8 @@
       globalThis.addEventListener('keydown', e => this.onKey(e, true));
       globalThis.addEventListener('keyup', e => this.onKey(e, false));
       globalThis.addEventListener('blur', () => this.keys.clear());
+      // a stray Ctrl+W or F5 mid-jump should not end the run without asking
+      globalThis.addEventListener('beforeunload', e => { if (this.state === 'play' || this.state === 'menu' || this.state === 'dead') { e.preventDefault(); e.returnValue = ''; } });
       this.last = performance.now();
       requestAnimationFrame(t => this.frame(t));
     }
@@ -127,7 +130,8 @@
     // ------------------------------------------------------------ input
     onKey(e, down) {
       const c = e.code;
-      const block = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'PageUp', 'PageDown', 'Home', 'End', 'F2', 'F3', 'AltLeft', 'AltRight', 'Enter', 'ControlLeft', 'ControlRight'];
+      // Ctrl is never bound: Ctrl+W would close the tab mid-jump
+      const block = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'PageUp', 'PageDown', 'Home', 'End', 'F2', 'F3', 'AltLeft', 'AltRight', 'Enter'];
       if (block.includes(c) || (e.altKey && c.startsWith('Arrow'))) e.preventDefault();
       if (down) {
         this.audio.init();
@@ -155,12 +159,12 @@
       if (k('KeyD', 'Period')) strafe += 1;
       let run = k('ShiftLeft', 'ShiftRight');
       if (this.opts.alwaysRun) run = !run;
-      const careful = k('KeyC', 'ControlLeft', 'ControlRight');
+      const careful = k('KeyC');
       if (careful) run = false;
       const look = (k('PageDown', 'KeyZ') ? 1 : 0) - (k('PageUp', 'KeyX') ? 1 : 0);
       return {
         fwd, strafe, turn, run, careful, look: -look, center: k('Home', 'End'),
-        jump: this.wasPressed('Space'), use: this.wasPressed('KeyE', 'Enter', 'NumpadEnter'),
+        jump: this.wasPressed('Space'), use: this.wasPressed('KeyE', 'Enter', 'NumpadEnter'), about: this.wasPressed('KeyQ'),
       };
     }
 
@@ -177,9 +181,12 @@
       this.showCard();
       return true;
     }
-    newGame() {
+    newGame(timed) {
       this.startMelt();
       this.game = this.makeGame();
+      this.chimed = 99;
+      this.game.persist.timed = !!timed;
+      this.menuStack = []; this.menuKind = null;
       this.ui.msgs = []; this.ui.setFace('normal');
       if (this.camp.intro) { this.state = 'intro'; this.introT = 0; this.audio.playSong(this.camp.introMusic || this.camp.titleMusic || null); }
       else this.showCard();
@@ -201,8 +208,7 @@
       if (lv.startMessage) this.ui.addMessage(lv.startMessage, 7);
     }
     restartLevel() {
-      this.game.persist.life = Math.max(this.game.persist.life, 1);
-      this.game.loadLevel(this.game.levelIndex);
+      this.game.restartLevel();
       this.showCard();
     }
 
@@ -212,11 +218,18 @@
       if (kind === 'title') {
         const lv = this.savedLevel();
         return [
-          { label: 'New Game', action: () => this.newGame() },
+          { label: 'New Game', action: () => this.openMenu('mode') },
           { label: lv >= 0 ? `Continue (Level ${lv + 1})` : 'Continue', disabled: lv < 0, action: () => this.continueGame() },
           { label: 'Options', action: () => this.openMenu('options') },
           { label: 'Controls', action: () => this.openMenu('controls') },
           { label: 'Story', action: () => { this.dialog = { title: this.camp.intro.title, text: this.camp.intro.text, back: 'title' }; this.state = 'dialog'; } },
+        ];
+      }
+      if (kind === 'mode') {
+        return [
+          { label: "The Sultan's Hour", value: () => '60:00', action: () => this.newGame(true) },
+          { label: 'Wanderer', value: () => 'NO LIMIT', action: () => this.newGame(false) },
+          { label: 'Back', action: () => this.backMenu() },
         ];
       }
       if (kind === 'pause') {
@@ -234,10 +247,10 @@
         return [
           { label: 'Music', value: () => onoff(o.music), action: () => { o.music = !o.music; this.audio.setMusic(o.music); this.saveOpts(); } },
           { label: 'Sound', value: () => onoff(o.sound), action: () => { o.sound = !o.sound; this.audio.setSfx(o.sound); this.saveOpts(); } },
-          { label: 'Time Limit', value: () => (o.timeLimit ? '60 MINUTES' : 'OFF'), action: () => { o.timeLimit = !o.timeLimit; this.saveOpts(); } },
           { label: 'Detail', value: () => detail[o.detail] || o.detail, action: () => cycleDetail(1), left: () => cycleDetail(-1), right: () => cycleDetail(1) },
           { label: 'Always Run', value: () => onoff(o.alwaysRun), action: () => { o.alwaysRun = !o.alwaysRun; this.saveOpts(); } },
           { label: 'Head Bob', value: () => onoff(o.bob), action: () => { o.bob = !o.bob; this.saveOpts(); } },
+          { label: 'Auto Peek', value: () => onoff(o.peek), action: () => { o.peek = !o.peek; this.saveOpts(); } },
           { label: 'Fullscreen', value: () => onoff(!!document.fullscreenElement), action: () => this.toggleFullscreen() },
           { label: 'Back', action: () => this.backMenu() },
         ];
@@ -285,10 +298,22 @@
           if (this.wasPressed('Equal', 'NumpadAdd')) ui.mapZoom = Math.min(16, ui.mapZoom + 1);
           if (this.wasPressed('Minus', 'NumpadSubtract')) ui.mapZoom = Math.max(2, ui.mapZoom - 1);
         }
-        const inp = this.readInput();
-        const n = Math.ceil(dt / (1 / 60));
-        for (let i = 0; i < n; i++) g.update(dt / n, i === 0 ? inp : Object.assign({}, inp, { use: false, jump: false }));
-        if (this.opts.timeLimit && g.persist.clock >= TIME_LIMIT && this.state === 'play') { this.state = 'timeup'; this.timeupT = 0; this.audio.play('death'); this.clearSave(); }
+        // fixed physics step: jumps land the same at any frame rate
+        const inp = this.readInput(), pend = this.pendingInput;
+        if (pend) { inp.jump = inp.jump || pend.jump; inp.use = inp.use || pend.use; inp.about = inp.about || pend.about; this.pendingInput = null; }
+        this.acc = Math.min(this.acc + dt, 0.1);
+        let first = true;
+        while (this.acc >= R.PHYSICS_DT && this.state === 'play') {
+          this.acc -= R.PHYSICS_DT;
+          g.update(R.PHYSICS_DT, first ? inp : Object.assign({}, inp, { use: false, jump: false, about: false }));
+          first = false;
+        }
+        if (first) this.pendingInput = inp; // edge presses carry over to the next step
+        if (g.persist.timed) {
+          const left = TIME_LIMIT - g.persist.clock;
+          for (const m of [15, 5, 1]) if (left <= m * 60 && (this.chimed || 99) > m) { this.chimed = m; this.audio.play('chime'); this.ui.addMessage(m === 1 ? 'ONE MINUTE LEFT! THE LAST GRAINS ARE FALLING.' : `${m} MINUTES LEFT IN THE HOURGLASS.`, 5); }
+          if (left <= 0 && this.state === 'play') { this.state = 'timeup'; this.timeupT = 0; this.audio.play('death'); this.clearSave(); }
+        }
       } else if (this.state === 'menu') {
         if (this.wasPressed('Escape')) this.backMenu();
         else this.menuInput(this.menuItems(this.menuKind));
@@ -302,7 +327,7 @@
       } else if (this.state === 'dead') {
         this.deadT += dt;
         g.update(dt, null);
-        if (this.deadT > 1.0 && this.wasPressed('Enter', 'Space', 'NumpadEnter')) { g.respawn(); this.state = 'play'; this.ui.addMessage(this.camp.respawnMessage || 'YOU TRY AGAIN...', 2); }
+        if ((this.deadT > 0.45 && this.wasPressed('Enter', 'Space', 'NumpadEnter', 'KeyE')) || this.deadT > 2.2) { this.startMelt(); g.respawn(); this.state = 'play'; this.acc = 0; this.ui.addMessage(this.camp.respawnMessage || 'YOU TRY AGAIN...', 2); }
       } else if (this.state === 'complete') {
         this.completeT += dt;
         g.update(dt, null);
@@ -353,7 +378,7 @@
       let z = p.viewZ + bob - p.dip;
       if (!p.alive) z = p.z + 0.12 + Math.max(0, cfg.eyeHeight - 0.12 - (this.deadT || 0) * 0.8);
       const sh = this.shakeT > 0 ? (Math.random() - 0.5) * this.shakeT * 6 : 0;
-      let pitch = p.pitch;
+      let pitch = p.pitch + (this.opts.peek ? p.autoPitch : 0);
       if (p.act && p.act.kind === 'climb') pitch += 14 * Math.sin(Math.min(1, p.act.t / p.act.dur) * Math.PI);
       if (p.act && p.act.kind === 'hang') pitch -= 10 * Math.sin(Math.min(1, p.act.t / p.act.dur) * Math.PI);
       return { x: p.x, y: p.y, z, ang: p.ang, pitch: (pitch + sh) * (this.viewH / 168), light: g.carriedLight() };
@@ -379,6 +404,7 @@
       if (this.state === 'intro') { this.drawIntro(); return; }
       ui.drawStatusBar(g);
       if (this.state === 'play' || this.state === 'dead') ui.drawMessages(!this.showMap);
+      if (this.state === 'play' && !this.showMap && g.player.hint) this.drawHint(g.player.hint);
       if (this.state === 'menu') {
         ui.shadeRect(0, 0, W, this.viewH, 0.6);
         if (this.menuKind === 'controls') this.drawControls();
@@ -386,7 +412,8 @@
       } else if (this.state === 'dialog' && this.dialog) ui.drawDialog(this.dialog);
       else if (this.state === 'dead') {
         ui.textC(this.camp.deathTitle || 'YOU HAVE PERISHED', W / 2, this.viewH * 0.35, R.UIGRAD.red, s * 2);
-        if (this.deadT > 1.0) ui.textC('PRESS ENTER TO TRY AGAIN', W / 2, this.viewH * 0.35 + 24 * s, R.UICOL.text, s);
+        if (g.deathCause) ui.textC(g.deathCause.toUpperCase(), W / 2, this.viewH * 0.35 + 22 * s, R.UICOL.text, s);
+        if (this.deadT > 0.45) ui.textC('PRESS ENTER', W / 2, this.viewH * 0.35 + 34 * s, R.UICOL.dim, s);
       } else if (this.state === 'complete') {
         ui.textC('LEVEL COMPLETE', W / 2, this.viewH * 0.35, R.UIGRAD.gold, s * 2);
       } else if (this.state === 'timeup') {
@@ -396,6 +423,15 @@
       } else if (this.state === 'won') this.drawWon();
     }
 
+    /** A small prompt above the status bar: what Space / walking on would do here. */
+    drawHint(hint) {
+      const ui = this.ui, s = this.uiScale, W = this.W;
+      const text = { CLIMB: 'SPACE: CLIMB', JUMP: 'SPACE: JUMP', HANG: 'PRESS FORWARD AGAIN: HANG FROM THE EDGE', EDGE: 'NO WAY DOWN HERE', HANGING: 'SPACE: PULL UP    LET GO OF C: DROP', DRINK: 'E: DRINK' }[hint];
+      if (!text) return;
+      const w = (text.length * 6 + 8) * s, x = Math.round((W - w) / 2), y = this.viewH - 14 * s;
+      ui.panel(x, y, w, 11 * s, '#14100c', 0.55);
+      ui.textC(text, W / 2, y + 2 * s, hint === 'EDGE' ? R.UICOL.dim : R.UICOL.gold, s);
+    }
     drawCard() {
       const ui = this.ui, W = this.W, H = this.H, s = this.uiScale, g = this.game, lv = this.camp.levels[g.levelIndex];
       ui.tile(this.camp.cardTexture || this.camp.hudTexture || 'STONE_DARK', 0, 0, W, H, 8);
@@ -405,7 +441,7 @@
       ui.textC(name, W / 2, Math.round(H * 0.36), R.UIGRAD.gold, ts);
       if (lv.subtitle) U.wrap(lv.subtitle.toUpperCase(), Math.floor((W / s - 24) / 6)).forEach((ln, i) => ui.textC(ln, W / 2, Math.round(H * 0.55) + i * 10 * s, R.UICOL.text, s));
       const p = g.persist;
-      ui.textC(`TIME ${U.formatTime(p.clock)}${this.opts.timeLimit ? '   LEFT ' + U.formatTime(Math.max(0, TIME_LIMIT - p.clock)) : ''}`, W / 2, Math.round(H * 0.74), R.UICOL.dim, s);
+      ui.textC(`TIME ${U.formatTime(p.clock)}${p.timed ? '   LEFT ' + U.formatTime(Math.max(0, TIME_LIMIT - p.clock)) : ''}`, W / 2, Math.round(H * 0.74), R.UICOL.dim, s);
       if (this.cardT > 0.6 && Math.floor(this.cardT * 2) % 2) ui.textC('PRESS ENTER', W / 2, H - 14 * s, R.UICOL.gold, s);
     }
     drawTitle() {
@@ -428,11 +464,12 @@
       const rows = this.camp.controlsText || [
         ['ARROWS / W S', 'WALK AND TURN'],
         ['A D  OR  ALT + ARROWS', 'SIDESTEP'],
-        ['SHIFT', 'RUN   (CAPS LOCK: ALWAYS RUN)'],
+        ['SHIFT', 'WALK / RUN   (CAPS LOCK: ALWAYS RUN)'],
+        ['Q', 'TURN AROUND'],
         ['SPACE', 'JUMP / CLIMB UP A LEDGE'],
-        ['C OR CTRL (HOLD)', 'CAREFUL STEP - STOPS AT EDGES'],
+        ['C (HOLD)', 'CAREFUL STEP - STOPS AT EDGES'],
         ['CAREFUL + WALK OFF', 'HANG AND DROP DOWN'],
-        ['E / ENTER', 'USE, OPEN, READ'],
+        ['E / ENTER', 'USE, OPEN, READ, PULL'],
         ['PGUP / PGDN / HOME', 'LOOK UP / DOWN / CENTRE'],
         ['TAB / M', 'MAP  (+/- ZOOM)'],
         ['F', 'TOGGLE FULLSCREEN'],

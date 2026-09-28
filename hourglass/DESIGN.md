@@ -2,120 +2,166 @@
 
 Design document (living). A first-person, keyboard-only, 1990s-style platform
 adventure inspired by the dungeons of classic cinematic platformers: stone
-corridors lit by torches, loose floors, spikes, slicing blades, portcullis gates
+corridors lit by torches, loose floors, spikes, slicing jaws, portcullis gates
 worked by pressure plates, and a race against an hourglass. Unlike its
-inspiration the world is **real 3D** — stacked levels you can look down into
-and climb between — with **no screen flipping** and **no combat**.
+inspiration the world is **real 3D** — storeys stacked on storeys that you can
+look down into, drop through and climb between — with **no screen flipping**
+and **no combat**.
 
 ## 1. Story
 
-Tariq, a carpet-weaver, overheard the Grand Vizier Qasim plotting to poison the
-Sultan at dawn. He was thrown into the Dungeon of Sands beneath the palace.
-The Vizier turned his great hourglass: when the last grain falls, the Sultan
-drinks. Tariq must climb out through the dungeon, the chasm, the blade halls,
-the forge and the Vizier's tower, and reach the palace roof before the sand
-runs out.
+**Aladdin** had the quickest fingers in the great bazaar. One night he cut the
+purse of a hooded stranger and found in it a vial of poison and a letter: the
+Sultan will drink it at dawn. The stranger was the Grand Vizier **Qasim**. His
+guards caught Aladdin and threw him into the Dungeon of Sands beneath the
+palace, and the Vizier turned his great hourglass: when the last grain falls,
+the Sultan drinks — and the thief hangs.
 
-## 2. Moves (numbers are the contract between physics, solver and levels)
+Aladdin climbs out through the cells, the chasm, the blade halls, the forge
+and the Vizier's tower, and reaches the palace roof at dawn. The Sultan pardons
+the thief of the bazaar and makes him keeper of the palace keys.
 
-Units: one map cell = 1.0 unit wide. Player radius 0.24, height 0.62, eye 0.5.
+## 2. Controls
 
-| Move | Keys | Rule |
+| Key | Action |
+| --- | --- |
+| ↑ / W, ↓ / S | forward / back |
+| ← / → | turn (A / D or Alt+← → sidestep) |
+| Shift (held) | walk — running is the default; Caps Lock swaps them |
+| Space | pull up (hanging) → climb (a ledge ahead) → jump (Forward held; a running jump waits for the edge) → straight-up jump |
+| C (held) | careful step: never walks off an edge; safe between spikes. At an edge, press Forward again to lower into a hang; keep C held to hang, let go (or Back) to drop |
+| Q | turn around |
+| E / Enter | use: drink, levers, doors, notes |
+| PgUp / PgDn, Home | look up / down, centre |
+| Tab / M | map · F fullscreen · Esc menu |
+
+**Ctrl is never bound** (Ctrl+W would close the tab mid-jump); leaving the page
+during play asks first.
+
+## 3. The moves contract
+
+These numbers are the contract between the physics (`engine/game.js`), the
+level solver (`tools/verify.js`) and the level authors. `tools/physics.js`
+proves both sides of every row with the real game at the fixed 120 Hz step.
+
+Units: a map cell is 1.0 wide; **storeys are 1.5 apart** (layers at z = 0, 1.5,
+3.0 …); a standard room is 1.25 tall with a 0.25 slab above. Player: body
+radius 0.24 (walls), foot radius 0.10 (ledges, loose floors, careful stops),
+height 0.62, eye 0.5. Walk 2.2, run 4.2, careful 1.1 u/s. Jump vz 3.6, gravity
+13 → apex 0.50, air time 0.55 s; horizontal speed is fixed at take-off (air
+control may only steer and brake). Coyote time 0.06 s, jump buffer 0.15 s.
+
+| | makes | never |
 | --- | --- | --- |
-| Walk / turn | ↑ ↓ ← →, W S, A D strafe, Alt+← → strafe | walk 2.2 u/s |
-| Run | Shift (Caps Lock = always run) | run 4.4 u/s |
-| Careful step | C or Ctrl held | 1.1 u/s; never walks off an edge; does not trigger proximity spikes; can step onto extended spikes safely |
-| Jump | Space | vz = 4.2, gravity 13 → apex 0.68, air time ≈ 0.65 s. Running jump clears a **2-cell gap**; standing jump adds a 2.6 u/s forward push and clears a **1-cell gap**. Air control 25 %. |
-| Climb up | Space facing a wall (or automatically when a jump brings you against a ledge) | grabs ledges whose top is 0.35 … **2.1** above the feet (one dungeon level). 0.8 s pull-up animation. |
-| Hang & drop | walk off an edge while holding Careful | lowers by 1.1 before letting go (fall distance reduced) |
-| Use | E / Enter | levers, doors, notes |
-| Step up | automatic | ≤ 0.35 |
+| standing jump, same level | 1-cell gap | 2 |
+| running jump, same level (2 straight cells of run-up) | lands 2, catches the lip of 3 | 4 |
+| jump down one storey | standing 2; running lands 3, catches 4 | 5 |
+| jump up +0.35 … +1.0 | across 1 (standing); +1.0 across 2 (running catch) | one storey up across any gap |
+| climb (Space facing a face) | ledges 0.35 … 1.75 above the feet (one storey), 0.9 s | 1.95 |
+| catch in mid-air | a lip 0.10 … 0.90 above the feet: Forward pulls up, C hangs | — |
 
-Falls (height from the highest point of the fall to the landing):
-≤ 2.3 safe · ≤ 4.4 lose 1 life · more = death. Landing on extended spikes,
-lava or into a bottomless abyss = death.
+Falls are measured from the **last floor** (or the hang), never from the jump
+apex: ≤ 2.3 safe · ≤ 3.8 costs a life · more is death (a scream warns you as
+you pass 3.8). Hanging lowers the feet 0.9, so walking off 1 storey is safe,
+walking off 2 costs a life, and **hang-dropping 2 storeys is safe**; hanging
+buys exactly one storey. Authors keep faces ≤ 1.55 (climbable) or ≥ 1.95
+(walls), and drops away from 2.3 and 3.8.
 
-Life: **3 life triangles** (PoP-style). Big life potion: +1 max (up to 6) and
-full heal. Small potion: +1. Poison (blue): −1. Death → respawn at the last
-checkpoint (level start or a lit checkpoint brazier) with full life; only time
-is lost.
+**Life**: 3 triangles. Small potion +1, great potion +1 maximum (up to 6) and a
+full heal, poison −1. Bottles are drunk with E while facing them (refused at
+full life).
 
-Time: an hourglass counts **60:00**. Options: *Time limit: 60 min / Off*
-(default Off = relaxed; elapsed time is still shown and reported).
+**Checkpoints**: braziers. Lighting one snapshots the world — fallen floors,
+opened gates, levers, pickups, inventory. Dying puts everything back as it was
+when the brazier was lit (full life); only time is lost. Nothing you did after
+the brazier survives a death, so a fallen bridge can never strand you.
 
-## 3. World model (engine change)
+**Time**: New Game offers *The Sultan's Hour* (60:00, chimes at 15, 5 and 1
+minutes; at zero the Sultan drinks) or *Wanderer* (no limit, time still shown).
+
+## 4. World model
 
 Each level is one grid; each cell holds a **list of open spans** stacked in
-height (`[{fl, cl, …}, …]`), everything between/around them is solid. This
-gives room-over-room, pits you can look down into, galleries above halls, and
-floors that fall away. Levels are authored as **layers**: 2-D ASCII maps at a
-base elevation (typically 0, 2, 4, 6 — two units per dungeon level). A layer
-character's template gives a span relative to the layer's elevation. `pit`
-templates have no floor and merge with the span below (holes, shafts, chasms);
-if nothing is below, the pit is a bottomless abyss (death).
+height (`[{fl, cl, …}, …]`); everything between and around them is rock. Levels
+are authored as **layers**: 2-D ASCII maps, exactly W × H, at a base elevation
+that is a multiple of the storey (1.5). A layer character's template gives a
+span relative to the layer's z. `pit` templates have no floor and merge with the
+open span below (holes, shafts); a pit with nothing below must be declared an
+abyss (`~`). Loose floors must have open space or an abyss below them.
 
-Rock faces between spans take the wall texture of the layer band they belong
-to, so a corridor wall looks the same whether or not a room lies above it.
+Rock faces take the wall texture of the layer band they belong to; the top edge
+of every ledge face is drawn with a bright lip so drops read at a glance.
+Portcullis bars and slicer jaws are thin masked walls on the cell's mid-plane,
+so you can see through gates and read the jaws from any angle.
 
-Other per-span features: doors/portcullis gates (ceiling slides, like Doom),
-loose floors, pressure plates, hazards, animations, tags, labels, music, sky.
+Per-span features: doors and portcullis gates (ceiling slides; see-through
+gates), loose floors, pressure plates (rubble from a loose floor jams a plate
+down for good), hazards, animations, tags, labels, music, sky, checkpoints.
 
-## 4. Hazards (all predictable, none pursue)
+## 5. Hazards (all predictable, none pursue; every period is a multiple of the 0.6 s beat)
 
 | Hazard | Behaviour | Effect |
 | --- | --- | --- |
-| Loose floor | shakes 0.5 s after you step on it, then falls to the level below and shatters | you fall with it if you stay |
-| Spikes | retracted; spring up when you run or land within 1 cell; retract after 1.5 s. Pit spikes are always up | running/falling into them = death; careful step = safe |
-| Slicer | jaws in a doorway snap shut on a fixed beat (2.4 s) | caught when shut = death |
-| Portcullis + plate | a plate raises a gate that slowly falls again (timed runs) | blocks the way |
-| Crusher | ceiling slams on a fixed beat | death |
-| Pendulum blade | swings across a corridor | −1 life |
-| Dart trap | wall launcher fires a dart down the corridor on a beat | −1 life |
-| Flame jet | floor vent fires on a beat | −1 life |
-| Falling rocks | a shadow grows for 0.8 s, then a rock drops | −1 life |
+| Loose floor | rattles when touched, drops 0.7 s later | walkers and runners cross; stop (or step carefully) and you ride it down |
+| Crumble bridge | a wave of loose tiles falling behind you | keep running |
+| Spikes | spring up when you come within a cell without C; stay up 1.5 s after you leave | running / falling / landing onto them: death; walking into them: −1 and pushed back; careful: safe |
+| Slicer | steel jaws across a corridor, period 2.4 s, shut ~0.45 s; a "shing" 0.3 s before | death |
+| Portcullis + plate | a plate raises a gate for H seconds; it ratchets down and never closes on you | blocks the way |
+| Crusher | ceiling slams on a fixed beat (3.6 s) | death |
+| Pendulum blade | swings across a corridor (2.4 s) | −1 life |
+| Dart trap | a click 0.6 s before, then a dart down the corridor (2.4 s, 5 u/s) | −1 life |
+| Flame vent | 0.9 s of flame every 2.4 s, glow first | −1 life |
+| Falling rocks | dust trickles, then a rock drops (3.6 s) | −1 life |
 | Rolling boulder | rolls down a trench, re-appears at the top | −1 life + knock-back |
-| Lava | glowing floor | death |
-| Rising pillars | stepping-stones that bob up and down in waves | fall if you miss |
-| Abyss | bottomless pit | death |
+| Lava, abyss | glowing floor / bottomless pit | death |
+| Bobbing stones | stepping-stones rising and falling in waves | fall if you miss |
 
-## 5. Items
+Fairness rule: every hazard can be seen, or clearly heard, for at least a
+second from the direction you approach it before it can hurt you.
 
-Keys (bronze, silver, gold) for locked doors; life potions, big life potions,
-poison; gems (optional collectibles, counted at the end); the **Vizier's Seal**
-that opens the tower's roof door in the last level.
+## 6. Items
 
-## 6. Levels
+Keys (bronze, silver, gold) for locked doors; potions, great potions, poison;
+gems (optional, counted at the end); the **Vizier's Seal** that opens the roof
+door in the last level.
 
-1. **The Cells** — tutorial: walking, first loose floor, first plate + gate,
-   first climb, first jump, careful step past spikes, a hidden big life potion.
-2. **The Chasm of Echoes** — a huge vertical chasm with ledges on both walls;
-   climb down, running jumps across, collapsing bridges, falling rocks, a
-   rising-pillar crossing; exit at the far top.
-3. **The Blade Halls** — slicers, pendulums, dart corridors, crushers and a
-   timed-gate gauntlet; galleries above let you preview what's below.
-4. **The Forge** — lava floors, bobbing stepping-stones, flame jets, lifts,
-   boulder trench.
-5. **The Vizier's Tower** — a vertical climb up a tower with everything mixed;
-   the Vizier's Seal opens the roof door; the roof under the stars is the end.
+## 7. Levels
 
-Each level ends at an exit door (opened by a plate/lever/key) and a staircase;
-entering it shows the next level's title card.
+1. **The Cells** — the tutorial: a cracked flag drops you out of your cell;
+   climbs; loose flags you must keep walking over; a plate and a see-through
+   portcullis; the teeth (careful step); the leaping hall (1, 2 and 3-cell
+   jumps over a safe pit); a gallery where a dropped flag jams a plate; a
+   hang-drop to the exit courtyard.
+2. **The Chasm of Echoes** — a huge chasm with ledges on both walls; hang-drops
+   down, a broken causeway of jumps, a rockfall ledge, a crumbling bridge,
+   bobbing stepping-stones; the exit at the far top.
+3. **The Blade Halls** — slicers, pendulums, a dart gallery, crushers and a
+   timed-gate gauntlet; a bridge above lets you preview what's below.
+4. **The Forge** — lava lighting the whole cavern, flame vents, lifts, slag
+   stones that sink, a boulder trench, the great anvil.
+5. **The Vizier's Tower** — an atrium climbed storey by storey; the Seal, a
+   crumbling bridge behind you, the dart stair, the roof under the stars.
 
-## 7. Presentation
+Every level: each hazard is shown safely before it can kill; braziers every
+60–90 s of optimal play and before every first lethal use; one hidden great
+potion; any fall that doesn't kill lands somewhere with a way on or back.
+
+## 8. Presentation
 
 Same 90s look as Hollowmere: low-res palette rendering, torch-lit sandstone,
-turbaned portrait that reacts, life triangles, hourglass timer, title card per
-level, Middle-Eastern flavoured tracker music (Hijaz / Phrygian dominant),
-synthesized SFX, Doom-style melt between screens, automap per height band.
+Aladdin's portrait in the status bar reacting to what happens, life triangles,
+the draining hourglass, a title card per level, Middle-Eastern flavoured
+tracker music (Hijaz), synthesized sound effects, Doom-style melt transitions,
+an automap per storey, and a prompt showing what Space / E would do right now
+(CLIMB, JUMP, HANG, PULL UP, DRINK). The camera peeks down when you stand at an
+edge, hang or fall, and up when a ledge is ahead.
 
-## 8. Verification
+## 9. Verification
 
-* `tools/verify.js` compiles every level and runs a movement-aware solver
-  (walk, step, climb ≤ 2.1, drop with fall rules, running jump over ≤ 2 cells,
-  standing jump over 1 cell, doors/keys/plates/levers) proving the exit and all
-  items are reachable.
-* `tools/physics.js` checks that the physics honours the numbers above
-  (a running jump really clears 2 cells, a 2.1 ledge is climbable, a 2.2 one is
-  not, falls hurt at the right heights, careful step stops at edges).
-* `tools/playtest.js` — a bot that plays each level to the exit with real
-  physics.
+* `tools/physics.js` — the moves contract, both sides, with the real game.
+* `tools/verify.js` — compiles every level and proves the exit is reachable
+  **without damage** with the contract's moves (jumps need run-up and headroom;
+  timed gates need 1.25 × optimal + 1.5 s ≤ hold + 0.3), lists unreachable
+  items, warns when a loose floor falling early (or before a brazier) could
+  strand you, and lints heights that sit on a threshold.
+* `tools/snap.js` — headless screenshots with the real renderer.

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * Headless screenshots with the real renderer:
- *   node tools/snap.js out.png [--level 0] [--x 5.5 --y 3.5 --z 0 --ang 0 --pitch 0]
+ *   node tools/snap.js out.png [--level 0] [--x 5.5 --y 3.5 --z 0 --ang 0|E|N|W|S --pitch 0]
  *                             [--w 356 --h 200] [--scale 3] [--map] [--give key_bronze,...]
  * Without --x/--y the level start is used. --map draws the automap instead.
  * Handy for reviewing levels without a browser; pairs with an image viewer.
@@ -46,8 +46,9 @@ function snap(opts = {}) {
   const g = new R.Game(camp, {});
   if (opts.level) g.loadLevel(+opts.level);
   for (const id of (opts.give || '').split(',').filter(Boolean)) g.give(id, { silent: true });
-  if (opts.x !== undefined) g.teleport(+opts.x, +opts.y, opts.z !== undefined ? +opts.z : undefined, opts.ang !== undefined ? +opts.ang : undefined);
-  else if (opts.ang !== undefined) g.player.ang = +opts.ang;
+  const ang = opts.ang === undefined ? undefined : isNaN(+opts.ang) ? R.util.dirAngle(opts.ang) : +opts.ang;
+  if (opts.x !== undefined) g.teleport(+opts.x, +opts.y, opts.z !== undefined ? +opts.z : undefined, ang);
+  else if (ang !== undefined) g.player.ang = ang;
   for (let t = 0; t < (opts.t || 0.2); t += 1 / 60) g.update(1 / 60, {});
   g.player.pitch = +(opts.pitch || 0);
   const p = g.player;

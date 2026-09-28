@@ -67,7 +67,8 @@
     }
   };
   R.defFaces();
-  R.defFaces('TFACE', { style: 'turban', hat: '#e8e0d0', band: '#c02030', skin: '#b87a54', hair: '#2a1a10' });
+  // Aladdin: a thief of the bazaar, in a red turban
+  R.defFaces('TFACE', { style: 'turban', hat: '#c83020', band: '#e8c040', skin: '#b87a54', hair: '#1a1008' });
 
   class UI {
     constructor(app) {
@@ -216,7 +217,7 @@
       if (!keys.length) this.textC('KEYS', X(208), Y(14), rgb('#4a4030'), s);
       // hourglass + time + level
       well(240, 4, 77, 26);
-      const clock = game.persist.clock, limit = this.app.opts.timeLimit;
+      const clock = game.persist.clock, limit = !!game.persist.timed;
       const shown = limit ? Math.max(0, 3600 - clock) : clock;
       this.drawHourglass(X(244), Y(7), s, limit ? Math.max(0, 1 - clock / 3600) : 1 - ((clock % 60) / 60));
       const warn = limit && shown < 300;

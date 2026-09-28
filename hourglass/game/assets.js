@@ -26,13 +26,32 @@
       p.ring(32, 30, 16, '#c89a30', 2); p.rect(15, 30, 2, 70, '#c89a30'); p.rect(47, 30, 2, 70, '#c89a30');
     },
   });
+  // portcullis: see-through (transparent between the bars), drawn on the gate cell's mid-plane;
+  // 2 units tall, bottom-pegged so the spiked foot rises with the gate
   T('GATE_BARS', {
+    h: 128,
+    gen(p) {
+      for (let x = 3; x < 64; x += 9) { p.rect(x, 0, 4, 120, '#4a4a4e'); p.rect(x, 0, 1, 120, '#8a8a92'); p.rect(x + 3, 0, 1, 120, '#2a2a2e'); }
+      for (const y of [14, 62, 106]) { p.rect(0, y, 64, 4, '#3a3a3e'); p.rect(0, y, 64, 1, '#7a7a82'); p.rect(0, y + 3, 64, 1, '#1e1e22'); }
+      for (let x = 3; x < 64; x += 9) p.poly([[x - 1, 120], [x + 2, 128], [x + 5, 120]], '#8a8a92');
+    },
+  });
+  // slicer jaws: stretched over the corridor's full height; frame 0 open (tucked into floor
+  // and ceiling), frame 3 shut (teeth meeting at waist height)
+  T('SLICER_JAWS', {
+    frames: 4,
     gen(p, c) {
-      p.fill('#0a0806');
-      for (let x = 3; x < 64; x += 9) { p.rect(x, 0, 3, 64, '#4a4a4e'); p.rect(x, 0, 1, 64, '#8a8a92'); }
-      for (const y of [8, 34, 58]) { p.rect(0, y, 64, 3, '#3a3a3e'); p.rect(0, y, 64, 1, '#7a7a82'); }
-      for (let x = 3; x < 64; x += 9) p.poly([[x - 1, 64], [x + 1.5, 58], [x + 4, 64]], '#6a6a72');
-      p.noise(0.12, c.seed);
+      const k = c.frame / 3, gap = 4 + (1 - k) * 26, mid = 34;
+      const steel = '#b8c0c8', hi = '#f0f4ff', dark = '#50545c';
+      const top = mid - gap, bot = mid + gap;
+      p.rect(2, 0, 60, Math.max(1, top - 3), steel); p.rect(2, 0, 60, 2, dark);
+      p.rect(2, Math.min(63, bot + 3), 60, 64 - Math.min(63, bot + 3), steel); p.rect(2, 62, 60, 2, dark);
+      for (let x = 2; x < 62; x += 6) {
+        p.poly([[x, top - 3], [x + 3, top + 2], [x + 6, top - 3]], hi);
+        p.poly([[x, bot + 3], [x + 3, bot - 2], [x + 6, bot + 3]], hi);
+      }
+      p.rect(2, 0, 2, 64, dark); p.rect(60, 0, 2, 64, dark);
+      if (k > 0.9) p.rect(24, top - 6, 3, 10, '#8a1010');
     },
   });
   T('EXIT_DOOR', {
@@ -162,5 +181,12 @@
   S2.register('drink', (A, o, v) => { for (let i = 0; i < 3; i++) A.tone({ type: 'sine', f0: 300 + i * 40, dur: 0.1, vol: 0.2 * v, delay: i * 0.12 }, o); });
   S2.register('bigdrink', (A, o, v) => { [392, 494, 587, 784].forEach((f, i) => A.tone({ type: 'triangle', f0: f, dur: 0.3, vol: 0.18 * v, delay: i * 0.1 }, o)); });
   S2.register('gate', (A, o, v) => { A.noise({ dur: 1.2, f0: 900, f1: 300, vol: 0.3 * v, filter: 'bandpass', q: 3 }, o); A.tone({ type: 'sawtooth', f0: 110, f1: 70, dur: 1.2, vol: 0.1 * v, lp: 500 }, o); });
+  S2.register('scream', (A, o, v) => { A.tone({ type: 'sawtooth', f0: 620, f1: 180, dur: 1.1, vol: 0.12 * v, lp: 1800, attack: 0.03 }, o); A.noise({ dur: 0.9, f0: 1200, f1: 400, filter: 'bandpass', q: 2, vol: 0.08 * v }, o); });
+  S2.register('shing', (A, o, v) => A.tone({ type: 'triangle', f0: 2600, f1: 3400, dur: 0.22, vol: 0.1 * v, attack: 0.02 }, o));
+  S2.register('dartclick', (A, o, v) => { A.tone({ type: 'square', f0: 900, dur: 0.02, vol: 0.12 * v, lp: 2500 }, o); A.tone({ type: 'square', f0: 700, dur: 0.02, vol: 0.1 * v, lp: 2500, delay: 0.07 }, o); });
+  S2.register('clang', (A, o, v) => { A.tone({ type: 'square', f0: 180, f1: 150, dur: 0.25, vol: 0.18 * v, lp: 1400 }, o); A.noise({ dur: 0.2, f0: 2200, filter: 'bandpass', q: 4, vol: 0.2 * v }, o); });
+  S2.register('ratchet', (A, o, v) => A.tone({ type: 'square', f0: 520, dur: 0.025, vol: 0.12 * v, lp: 1600 }, o));
+  S2.register('rumble', (A, o, v) => A.noise({ dur: 1.4, f0: 160, f1: 90, vol: 0.35 * v, attack: 0.2 }, o));
+  S2.register('chime', (A, o, v) => { [880, 1175, 880].forEach((f, i) => A.tone({ type: 'sine', f0: f, dur: 0.6, vol: 0.15 * v, delay: i * 0.35 }, o)); });
   S2.register('checkpoint', (A, o, v) => { A.noise({ dur: 0.6, f0: 400, f1: 1500, vol: 0.3 * v, attack: 0.05 }, o); [523, 659].forEach((f, i) => A.tone({ type: 'triangle', f0: f, dur: 0.4, vol: 0.12 * v, delay: 0.2 + i * 0.12 }, o)); });
 })(globalThis.RetroEngine = globalThis.RetroEngine || {});
