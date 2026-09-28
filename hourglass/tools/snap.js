@@ -1,20 +1,15 @@
 #!/usr/bin/env node
 /*
  * Headless screenshots with the real renderer:
- *   node tools/snap.js out.png [--level 0] [--x 5.5 --y 3.5 --z 0 --ang 0|E|N|W|S --pitch 0]
+ *   node tools/snap.js out.png [--level 0|id] [--x 5.5 --y 3.5 --z 0 --ang 0|E|N|W|S --pitch 0]
  *                             [--w 356 --h 200] [--scale 3] [--map] [--give key_bronze,...]
  * Without --x/--y the level start is used. --map draws the automap instead.
  * Handy for reviewing levels without a browser; pairs with an image viewer.
  */
 'use strict';
 const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
 const zlib = require('zlib');
-const root = path.resolve(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-for (const m of html.matchAll(/<script src="([^"]+)"/g)) vm.runInThisContext(fs.readFileSync(path.join(root, m[1]), 'utf8'), { filename: m[1] });
-const R = globalThis.RetroEngine;
+const R = require('./load.js').load();
 
 function writePNG(file, w, h, rgba) {
   const crcTable = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c; });
@@ -44,7 +39,11 @@ function snap(opts = {}) {
   const app = { W, H, viewH, uiScale, buf, bank, pal, camp, opts: { timeLimit: false } };
   const ui = new R.UI(app);
   const g = new R.Game(camp, {});
-  if (opts.level) g.loadLevel(+opts.level);
+  if (opts.level !== undefined) {
+    const i = isNaN(+opts.level) ? camp.levels.findIndex(l => l.id === opts.level) : +opts.level;
+    if (i < 0) throw new Error(`No level "${opts.level}"`);
+    g.loadLevel(i);
+  }
   for (const id of (opts.give || '').split(',').filter(Boolean)) g.give(id, { silent: true });
   const ang = opts.ang === undefined ? undefined : isNaN(+opts.ang) ? R.util.dirAngle(opts.ang) : +opts.ang;
   if (opts.x !== undefined) g.teleport(+opts.x, +opts.y, opts.z !== undefined ? +opts.z : undefined, ang);

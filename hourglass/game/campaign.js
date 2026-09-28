@@ -143,4 +143,7 @@
       ] },
     },
   });
+  // one song per level (game/audio.js replaces these placeholders)
+  const camp = R.campaigns.get('hourglass');
+  for (const id of ['cells', 'chasm', 'blades', 'forge', 'tower']) if (!camp.music[id]) camp.music[id] = camp.music.dungeon;
 })(globalThis.RetroEngine = globalThis.RetroEngine || {});

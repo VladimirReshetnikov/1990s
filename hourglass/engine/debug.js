@@ -16,10 +16,10 @@
   RE.sim = (inp = {}, secs = 1) => {
     const a = app();
     if (Array.isArray(inp)) { a.keys = new Set(inp); inp = null; }
-    const n = Math.round(secs * 60);
+    const n = Math.round(secs * 120);
     for (let i = 0; i < n; i++) {
-      if (inp) a.game.update(1 / 60, Object.assign({}, inp, i === 0 ? {} : { jump: false, use: false }));
-      else a.step(1 / 60);
+      if (inp) a.game.update(R.PHYSICS_DT, Object.assign({}, inp, i === 0 ? {} : { jump: false, use: false, about: false }));
+      else a.step(R.PHYSICS_DT);
     }
     a.keys = new Set();
     a.draw(); a.ctx2d.putImageData(a.img, 0, 0);

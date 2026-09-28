@@ -24,13 +24,7 @@
  * gone, and heights that sit on a contract threshold (ambiguous in play).
  */
 'use strict';
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
-const root = path.resolve(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-for (const m of html.matchAll(/<script src="([^"]+)"/g)) vm.runInThisContext(fs.readFileSync(path.join(root, m[1]), 'utf8'), { filename: m[1] });
-const R = globalThis.RetroEngine;
+const R = require('./load.js').load();
 const camp = R.campaigns.get('hourglass');
 const want = process.argv.slice(2).find(a => !a.startsWith('--'));
 const quiet = process.argv.includes('--quiet');

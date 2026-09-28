@@ -18,7 +18,7 @@
     name: 'The Cells',
     subtitle: 'Below the palace, where the Vizier keeps those who know too much.',
     width: 36, height: 16,
-    music: 'dungeon',
+    music: 'cells',
     startMessage: 'The flagstones of your cell are cracked... Walk forward. (Arrows move; hold SHIFT to walk slowly.)',
     legend: {
       '@': { base: '.', start: 'E', label: 'Your Cell' },
