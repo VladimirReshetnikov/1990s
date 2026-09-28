@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Edge replay:  node tools/replay.js [levelId] [--all] [--quiet] [--calm] [--trace]
+ * Edge replay:  node tools/replay.js [levelId] [--all] [--quiet] [--calm] [--nowait] [--trace]
  *               node tools/replay.js --selftest
  *
  * Makes the solver's claims (tools/verify.js) trustworthy in the REAL level
@@ -39,6 +39,18 @@
  * fails. --calm removes timed hazards (slicers, darts, rocks, vents, blades,
  * boulders, crushers) to isolate the physics; --trace prints the path of every
  * failing edge; --quiet prints only failures and summaries.
+ *
+ * Timed hazards: an edge that a hazard hurts is retried after waiting at its
+ * start 0.1, 0.2 ... s (up to twice the longest hazard period), as a player
+ * waits for the gap (--nowait turns this off). On the route, a run of walk /
+ * step edges through cells a hazard can reach (found by running the level for
+ * a while and recording where every blade, dart, rock, flame, boulder and
+ * crusher goes) is planned like a careful player: from cell centre to cell
+ * centre, waiting 0..waitMax s before each step (walking, or running), with
+ * backtracking. Hazards are functions of level time, so a step is tried in a
+ * fresh world wound to that moment (3 s of pre-roll with nobody there puts
+ * darts and rocks in flight). The plan passes when it reaches the next safe
+ * cell alive and unhurt; its total waiting is reported.
  */
 'use strict';
 const V = require('./verify.js');
@@ -166,6 +178,11 @@ function replayEdge(lv, rnd, e, opts = {}) {
   }
   const settled = () => p.onGround && !p.act && Math.hypot(p.vx, p.vy) < 0.05 && p.lock <= 0;
   const result = (ok, note) => ({ ok, note, secs: g.time, trace });
+  // wait at the start pose for the right moment (timed hazards), as a player would
+  for (let t = 0; t < (opts.delay || 0); t += DT) {
+    g.update(DT, { careful: true });
+    if (!p.alive || p.life < life0) return result(false, `hurt while waiting ${f2(opts.delay)} s: ${lastMsg || '?'}`);
+  }
   for (let t = 0; t < LIMIT; t += DT) {
     const inp = input();
     g.update(DT, inp);
@@ -185,6 +202,130 @@ function replayEdge(lv, rnd, e, opts = {}) {
   return result(false, `timeout (${phase}) at x=${f2(p.x)} y=${f2(p.y)} z=${f2(p.z)} ${p.onGround ? 'on ground' : 'in the air'}${p.act ? ' ' + p.act.kind : ''}`);
 }
 
+/** Span ids (x,y,i) that timed hazards reach within `secs` of level time. */
+function dangerMap(lv, secs) {
+  const g = V.makeGame(lv);
+  g.player.alive = false;                       // nobody home: the hazards just run
+  const danger = new Set(), r = g.cfg.radius;
+  for (const c of g.world.cells) for (const sp of c.spans) if (sp.anim && sp.anim.type === 'crusher') danger.add(sid(sp));
+  for (let t = 0; t < secs; t += DT * 3) {
+    for (let k = 0; k < 3; k++) g.update(DT, null);
+    for (const e of g.ents) {
+      if (e.gone || !TIMED.has(e.type) || e.type === 'darts') continue;
+      const rr = (e.radius || 0.3) + r;
+      for (let cy = Math.floor(e.y - rr); cy <= Math.floor(e.y + rr); cy++) for (let cx = Math.floor(e.x - rr); cx <= Math.floor(e.x + rr); cx++) {
+        const c = g.world.cellAt(cx, cy);
+        if (!c) continue;
+        for (const sp of c.spans) if (sp.fl <= e.z + (e.height || 0.6) + 0.1 && sp.fl + g.cfg.height >= e.z - 0.1) danger.add(sid(sp));
+      }
+    }
+  }
+  return danger;
+}
+
+/**
+ * One step of a timed plan: a fresh world at level time T (pre-rolled), the
+ * player at rest on edge e's source centre; wait `delay`, then walk (or run) to
+ * the target centre. Returns { ok, T } with T the arrival time, or { ok: false }.
+ */
+function timedStep(lv, rnd, e, T, delay, run) {
+  const g = V.makeGame(lv, {});
+  applyState(g, rnd.state);
+  const from = spanOf(g, sid(e.from)), to = spanOf(g, sid(e.to));
+  for (const u of (rnd.gone || []).map(q => spanOf(g, sid(q)))) if (u && u.loose) g.dropFloor(u, true);
+  for (const c of g.world.cells) for (const sp of c.spans) sp.exit = false;
+  const p = g.player;
+  const pre = Math.min(3, T);
+  g.time = T - pre;
+  p.alive = false;
+  for (let t = 0; t < pre - 1e-9; t += DT) g.update(DT, null);
+  p.alive = true;
+  const [dx, dy] = e.dir || [1, 0];
+  g.teleport(from.cell.x + 0.5, from.cell.y + 0.5, e.z, Math.atan2(dy, dx));
+  Object.assign(p, { invuln: 0, jumpBuf: -1, snapUntil: -1, prevFwd: false, edgeStop: false, lastGround: g.time });
+  const life0 = p.life, careful = !!e.careful;
+  for (let t = 0; t < delay; t += DT) { g.update(DT, { careful: true }); if (!p.alive || p.life < life0) return { ok: false }; }
+  const tx = to.cell.x + 0.5, ty = to.cell.y + 0.5;
+  for (let t = 0; t < 4; t += DT) {
+    p.ang = Math.atan2(ty - p.y, tx - p.x);
+    g.update(DT, { fwd: 1, careful, run: run && !careful });
+    if (!p.alive || p.life < life0) return { ok: false };
+    if (Math.hypot(tx - p.x, ty - p.y) < 0.3 && p.onGround && !p.act) return { ok: g.footSpan() === to, T: g.time };
+  }
+  return { ok: false };
+}
+
+/**
+ * Plan a run of walk/step edges through hazard cells: when to wait at each
+ * cell centre. Depth-first with memo; returns { ok, waits, secs } or { ok: false }.
+ */
+function planSegment(lv, rnd, edges, T0, waitMax, budget = 1500) {
+  const failed = new Set();
+  let trials = 0;
+  const waits = [];
+  function stage(i, T) {
+    if (i === edges.length) return true;
+    const key = `${i}@${Math.round(T * 10)}`;
+    if (failed.has(key) || trials > budget) return false;
+    for (let d = 0; d <= waitMax + 1e-9; d += 0.3) {
+      for (const run of [false, true]) {
+        trials++;
+        const r = timedStep(lv, rnd, edges[i], T, d, run);
+        if (!r.ok) continue;
+        waits.push({ d, run });
+        if (stage(i + 1, r.T)) return true;
+        waits.pop();
+        if (trials > budget) return false;
+      }
+    }
+    failed.add(key);
+    return false;
+  }
+  const ok = stage(0, T0);
+  return ok ? { ok, waits, trials } : { ok: false, trials };
+}
+
+/** Replay a run of walk/step edges as one continuous move (waypoints), after waiting `delay` s. */
+function replaySegment(lv, rnd, edges, opts = {}) {
+  let lastMsg = '';
+  const g = V.makeGame(lv, { msg: t => { lastMsg = t; } });
+  applyState(g, rnd.state);
+  const tos = edges.map(e => spanOf(g, sid(e.to))), from = spanOf(g, sid(edges[0].from));
+  for (const u of (rnd.gone || []).map(q => spanOf(g, sid(q)))) if (u && u.loose) g.dropFloor(u, true);
+  const last = tos[tos.length - 1];
+  for (const c of g.world.cells) for (const sp of c.spans) if (sp !== last) sp.exit = false;
+  const p = g.player;
+  const [dx, dy] = edges[0].dir || [1, 0];
+  g.teleport(from.cell.x + 0.5, from.cell.y + 0.5, edges[0].z, Math.atan2(dy, dx));
+  Object.assign(p, { invuln: 0, jumpBuf: -1, snapUntil: -1, prevFwd: false, edgeStop: false, lastGround: 0 });
+  const life0 = p.life;
+  const fail = note => ({ ok: false, note });
+  for (let t = 0; t < (opts.delay || 0); t += DT) {
+    g.update(DT, { careful: true });
+    if (!p.alive || p.life < life0) return fail(`hurt while waiting: ${lastMsg || '?'}`);
+  }
+  let wi = 0, coast = 0;
+  for (let t = 0; t < LIMIT + edges.length; t += DT) {
+    const tgt = tos[wi], tx = tgt.cell.x + 0.5, ty = tgt.cell.y + 0.5;
+    const careful = !!edges[wi].careful;
+    let inp = {};
+    if (wi < tos.length - 1 || Math.hypot(tx - p.x, ty - p.y) > 0.3) {
+      p.ang = Math.atan2(ty - p.y, tx - p.x);
+      inp = { fwd: 1, careful, run: !careful && !!opts.run };
+      if (wi < tos.length - 1 && Math.hypot(tx - p.x, ty - p.y) < 0.35) wi++;
+    } else inp = { careful };
+    g.update(DT, inp);
+    if (!p.alive) return fail(`died: ${g.deathCause || lastMsg || '?'} at x=${f2(p.x)} y=${f2(p.y)}`);
+    if (p.life < life0) return fail(`hurt: ${lastMsg || '?'} at x=${f2(p.x)} y=${f2(p.y)}`);
+    if (wi === tos.length - 1 && p.onGround && !p.act && Math.hypot(tx - p.x, ty - p.y) <= 0.3) {
+      coast += DT;
+      // stay put a moment: it must be safe to stop there
+      if (coast > 0.6 && g.footSpan() === last) return { ok: true, note: '' };
+    }
+  }
+  return fail(`timeout at x=${f2(p.x)} y=${f2(p.y)}`);
+}
+
 /** Replay a level's route (or all edges); returns { routeFails, fails, ok, skipped, total }. */
 function replayLevel(lv, opts = {}) {
   const t0 = Date.now();
@@ -193,23 +334,78 @@ function replayLevel(lv, opts = {}) {
   const routeKeys = new Set();
   const out = { routeFails: 0, fails: 0, ok: 0, skipped: 0, total: 0, back: 0, kinds: {}, res };
   const print = (line, isFail) => { if (!opts.quiet || isFail) console.log(line); };
+  // the longest hazard period in the level: waiting up to twice it tries every phase
+  const probe = V.makeGame(lv);
+  let maxPeriod = 0;
+  for (const en of probe.ents) if (TIMED.has(en.type)) maxPeriod = Math.max(maxPeriod, en.spec.period || 2.4);
+  for (const sp of probe.spansWith.anim) if (sp.anim.period) maxPeriod = Math.max(maxPeriod, sp.anim.period);
+  const waitMax = Math.min(12, 2 * maxPeriod);
   const run = (rnd, e, onRoute) => {
-    const r = replayEdge(lv, rnd, e, opts);
+    let r = replayEdge(lv, rnd, e, opts);
+    if (!r.ok && !r.skip && !opts.calm && !opts.noWait && /^(died|hurt)/.test(r.note)) {
+      for (let d = 0.1; d <= waitMax + 1e-9; d += 0.1) {
+        const r2 = replayEdge(lv, rnd, e, Object.assign({}, opts, { delay: d }));
+        if (r2.ok) { r = Object.assign(r2, { note: `after waiting ${f2(d)} s${r2.note ? '; ' + r2.note : ''}`, waited: d }); break; }
+      }
+    }
     out.total++;
     if (r.skip) { out.skipped++; print(`    skip ${describe(e)}  ${r.note}`); return; }
     const kind = e.kind + (e.careful ? ' careful' : '') + ((e.kind === 'jump' || e.kind === 'catch') ? (e.run ? ' run' : ' stand') : '');
-    if (r.ok) { out.ok++; out.kinds[kind] = (out.kinds[kind] || 0) + 1; if (r.note) out.back++; print(`    ok   ${describe(e)}  ${f2(r.secs)} s${r.note ? '  ' + r.note : ''}`); return; }
+    if (r.ok) { out.ok++; out.kinds[kind] = (out.kinds[kind] || 0) + 1; if (r.waited) out.waited = (out.waited || 0) + 1; else if (r.note) out.back++; print(`    ok   ${describe(e)}  ${f2(r.secs)} s${r.note ? '  ' + r.note : ''}`); return; }
     out.fails++; if (onRoute) out.routeFails++;
     print(`    FAIL ${describe(e)}${onRoute && opts.all ? '  [route]' : ''}  ${r.note}`, true);
     if (opts.trace) for (const line of r.trace) console.log('         ' + line);
   };
   if (!res.exit && !opts.noExit) console.log('  (the solver finds no exit: replaying the legs it has)');
+  const danger = opts.calm ? new Set() : dangerMap(lv, Math.max(waitMax, 4));
+  const segKeys = new Set();
+  /** A run of walk/step edges through hazard cells, replayed as one move after each possible wait. */
+  const runSegment = (rnd, seg) => {
+    const key = seg.map(edgeKey).join('>');
+    if (segKeys.has(key)) return;
+    segKeys.add(key);
+    out.total++;
+    const label = `through ${seg.length} hazard cells ${where(seg[0].from)} -> ${where(seg[seg.length - 1].to)}`;
+    // first try it in one go (after some wait), then plan waits cell by cell
+    for (const run of [false, true]) {
+      for (let d = 0; d <= waitMax + 1e-9; d += 0.1) {
+        const r = replaySegment(lv, rnd, seg, Object.assign({}, opts, { delay: d, run }));
+        if (r.ok) { out.ok++; out.waited = (out.waited || 0) + 1; print(`    ok   ${label}  (in one go ${run ? 'running' : 'walking'}, after waiting ${f2(d)} s)`); return; }
+      }
+    }
+    // start the plan at a few different moments (you arrive at the corridor whenever you arrive)
+    for (const T0 of [10, 11.3]) {
+      const plan = planSegment(lv, rnd, seg, T0, waitMax);
+      if (plan.ok) {
+        const wait = plan.waits.reduce((q, w) => q + w.d, 0);
+        out.ok++; out.waited = (out.waited || 0) + 1;
+        print(`    ok   ${label}  (planned: ${f2(wait)} s of waiting in ${plan.waits.filter(w => w.d > 0).length} pauses, ${plan.trials} trials)`);
+        return;
+      }
+    }
+    out.fails++; out.routeFails++;
+    print(`    FAIL ${label}  (no plan of waits at cell centres gets through, walking or running)`, true);
+  };
   for (const leg of legs) {
     const rnd = res.rounds[leg.round];
     const fresh = leg.edges.filter(e => { const k = edgeKey(e); if (routeKeys.has(k)) return false; routeKeys.add(k); return true; });
     if (!opts.all) {
       print(`  leg → ${leg.label} (round ${leg.round + 1}): ${leg.edges.length} edges${fresh.length < leg.edges.length ? `, ${leg.edges.length - fresh.length} already replayed` : ''}`);
-      for (const e of fresh) run(rnd, e, true);
+      const freshSet = new Set(fresh);
+      const E = leg.edges;
+      for (let i = 0; i < E.length; i++) {
+        const ground = e => e.kind === 'walk' || e.kind === 'step';
+        if (ground(E[i]) && danger.has(sid(E[i].to))) {
+          // extend through the hazard cells to the next safe stop
+          let j = i;
+          while (j + 1 < E.length && ground(E[j + 1]) && danger.has(sid(E[j].to))) j++;
+          const seg = E.slice(i, j + 1);
+          if (seg.some(e => freshSet.has(e))) runSegment(rnd, seg);
+          i = j;
+          continue;
+        }
+        if (freshSet.has(E[i])) run(rnd, E[i], true);
+      }
     }
   }
   if (opts.all) {
@@ -221,7 +417,7 @@ function replayLevel(lv, opts = {}) {
     }
   }
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
-  console.log(`  ${opts.all ? 'all edges' : 'route'}: ${out.total} replayed, ${out.ok} ok${out.back ? ` (${out.back} after a step back)` : ''}, ${out.fails} failed${opts.all ? ` (${out.routeFails} on the route)` : ''}${out.skipped ? `, ${out.skipped} skipped` : ''}  [${secs} s]`);
+  console.log(`  ${opts.all ? 'all edges' : 'route'}: ${out.total} replayed, ${out.ok} ok${out.back ? ` (${out.back} after a step back)` : ''}${out.waited ? ` (${out.waited} after waiting for a hazard)` : ''}, ${out.fails} failed${opts.all ? ` (${out.routeFails} on the route)` : ''}${out.skipped ? `, ${out.skipped} skipped` : ''}  [${secs} s]`);
   return out;
 }
 
@@ -317,7 +513,7 @@ if (require.main === module) {
   const args = process.argv.slice(2);
   if (args.includes('--selftest')) process.exit(selftest() ? 0 : 1);
   const want = args.find(a => !a.startsWith('--'));
-  const opts = { all: args.includes('--all'), quiet: args.includes('--quiet'), calm: args.includes('--calm'), trace: args.includes('--trace') };
+  const opts = { all: args.includes('--all'), quiet: args.includes('--quiet'), calm: args.includes('--calm'), noWait: args.includes('--nowait'), trace: args.includes('--trace') };
   const levels = camp.levels.filter(l => !want || l.id === want);
   if (!levels.length) { console.error(`No level "${want}". Levels: ${camp.levels.map(l => l.id).join(', ')}`); process.exit(2); }
   let bad = false;

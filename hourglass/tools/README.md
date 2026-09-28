@@ -101,6 +101,7 @@ node tools/replay.js                 # the route of every level
 node tools/replay.js cells --all     # every edge the solver relaxed, in every round
 node tools/replay.js cells --quiet   # only failures and the summary
 node tools/replay.js cells --calm    # without timed hazards (physics only)
+node tools/replay.js cells --nowait  # hazards, but never wait for them
 node tools/replay.js cells --trace   # print the path of each failing edge
 node tools/replay.js --selftest
 ```
@@ -137,7 +138,25 @@ about 2-3 s.
 Exit code 1 when an edge of the optimal route fails. With `--all`, failures of
 edges off the route are reported (they are moves the solver believes in but
 the route does not need) without failing the run. Edges from or onto a
-bobbing floor are skipped (their timing is not replayed).
+bobbing floor or a lift are skipped (their timing is not replayed).
+
+### Timed hazards
+
+The solver ignores blades, darts, rocks, vents, boulders and crushers; the
+replay does not. An edge a hazard hurts is retried after waiting at its start
+0.1, 0.2 ... s, up to twice the longest hazard period in the level (`after
+waiting 1.20 s`). On the route, a run of walk / step edges through cells a
+hazard can reach (found by running the level with nobody in it and recording
+where every hazard goes) is taken as one move to the next safe cell: first in
+one go after some wait, walking or running; failing that, the replay PLANS it
+like a careful player — from cell centre to cell centre, waiting before each
+step, with backtracking (`planned: 3.40 s of waiting in 4 pauses`). Each
+planned step runs in a fresh world wound to that moment of level time (3 s of
+pre-roll with nobody there puts darts and rocks in flight). A `FAIL through N
+hazard cells` means no such plan exists: the corridor needs a safe pocket, a
+slower hazard, or a wider gap in its timing. Planning is slow on long
+gauntlets (minutes); `--nowait` turns all waiting off and `--calm` removes the
+hazards.
 
 ### Reading a failure
 
