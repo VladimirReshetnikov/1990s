@@ -48,7 +48,7 @@
       const b = resolveTemplate(legend, t.base, where, depth + 1);
       const own = Object.assign({}, t); delete own.base;
       const merged = U.merge(b, own);
-      for (const k of ['ent', 'start', 'door', 'loose', 'plate', 'exit', 'use']) if (!(k in own)) delete merged[k];
+      for (const k of ['ent', 'start', 'door', 'loose', 'plate', 'exit', 'use', 'lever']) if (!(k in own)) delete merged[k];
       return merged;
     }
     return t;
@@ -150,12 +150,13 @@
         if (isAuto(L.legend, ch)) {
           const own = Object.assign({}, L.legend[ch]); delete own.base;
           const b = Object.assign({}, autoBase(L, x, y, where));
-          for (const k of ['ent', 'start', 'door', 'loose', 'plate', 'exit', 'use']) delete b[k];
+          for (const k of ['ent', 'start', 'door', 'loose', 'plate', 'exit', 'use', 'lever']) delete b[k];
           t = U.merge(L.defaults, b, own);
         } else t = U.merge(L.defaults, resolveTemplate(L.legend, ch, where));
         const info = {
           solid: !!t.solid, wall: texId(t.wall), low: texId(t.low ?? t.wall), up: texId(t.up ?? t.wall),
           use: t.use || null, tag: t.tag || null, span: null, ch,
+          lever: t.lever ? Object.assign({ on: false }, t.lever) : null,
         };
         if (!t.solid) {
           const s = makeSpan(t, L.z, cell, L.index);

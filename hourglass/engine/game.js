@@ -353,6 +353,7 @@
           this.sound('click', s.cell.x + 0.5, s.cell.y + 0.5, 1, s.fl);
           if (P.opens) this.openDoor(P.opens, P.hold || 0);
           if (P.closes) this.closeDoor(P.closes);
+          if (P.lift) this.moveSpans(P.lift.tag, P.lift.prop || 'fl', P.lift.to, P.lift.speed || 0.8);
           if (P.script) this.runScript(P.script, { span: s });
           if (P.msg && !P.said) { P.said = true; this.msg(P.msg); }
         } else if (!on && P.pressed) { P.pressed = false; s.fl = s.baseFl; }
@@ -710,10 +711,27 @@
         // a door whose opening is at our height
         for (const sp of c.spans) if (sp.door && sp.fl <= p.z + cfg.stepUp && sp.doorTop >= p.z + 0.3 && sp.door.state !== 'open' && sp.door.state !== 'opening') { this.useDoor(sp); return; }
         const band = c.band[this.world.band(eyeZ)];
+        if (band && band.lever && !R.spanAt(c, eyeZ)) { this.pullLever(band, c); return; }
         if (band && band.use && !R.spanAt(c, eyeZ)) { this.runScript(band.use, { cell: c, band }); return; }
         if (!R.spanAt(c, eyeZ)) break;
       }
       this.sound('noway', undefined, undefined, 0.5);
+    }
+
+    /** Declarative lever: { opens: tag, closes: tag, lift: {tag, to, prop, speed}, msg, script, once }. */
+    pullLever(band, c) {
+      const L = band.lever;
+      if (L.on && L.once !== false) { this.msg(L.doneMsg || 'The lever will not move any further.'); this.sound('noway'); return; }
+      L.on = !L.on;
+      band.wall = R.textures.id(L.on ? (L.texOn || 'LEVER_DOWN') : (L.texOff || 'LEVER_UP'));
+      this.sound('switch', c.x + 0.5, c.y + 0.5);
+      if (L.on) {
+        if (L.opens) this.openDoor(L.opens, L.hold || 0);
+        if (L.closes) this.closeDoor(L.closes);
+        if (L.lift) this.moveSpans(L.lift.tag, L.lift.prop || 'fl', L.lift.to, L.lift.speed || 0.8);
+      } else if (L.opens) this.closeDoor(L.opens);
+      if (L.msg) this.msg(L.msg);
+      if (L.script) this.runScript(L.script, { cell: c, band });
     }
 
     /** Build the sprite list for the renderer (culling cells not rendered this frame). */
