@@ -164,4 +164,11 @@ edge, hang or fall, and up when a ledge is ahead.
   timed gates need 1.25 × optimal + 1.5 s ≤ hold + 0.3), lists unreachable
   items, warns when a loose floor falling early (or before a brazier) could
   strand you, and lints heights that sit on a threshold.
+* `tools/replay.js` — performs each move the solver relied on (the optimal
+  route, or with `--all` every move it relaxed) in the real engine, in the real
+  level geometry and the world state of that search round, with canonical
+  keyboard input; fails a move that does not end alive, unhurt and on its
+  target. `--selftest` proves it on synthetic levels.
 * `tools/snap.js` — headless screenshots with the real renderer.
+
+See `tools/README.md`.

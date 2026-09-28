@@ -6,7 +6,8 @@
  * that restore the world as it was, and level progression.
  *
  * THE MOVES CONTRACT (R.GAME_DEFAULTS at the fixed 120 Hz step; storeys are
- * 1.5 apart; proven two-sided by tools/physics.js, assumed by tools/verify.js):
+ * 1.5 apart; proven two-sided by tools/physics.js, assumed by tools/verify.js,
+ * replayed move by move in the real levels by tools/replay.js):
  *   same level:  standing jump lands a 1-cell gap, never 2 · running jump lands 2,
  *                catches the lip of 3, never crosses 4
  *   down 1 storey: standing makes 2 · running lands 3, catches 4, never 5
@@ -407,6 +408,8 @@
       this.record(['drop', c.x, c.y, s.baseFl]);
       const x = c.x + 0.5, y = c.y + 0.5, z0 = s.baseFl;
       const sprite = this.camp.looseSprite || 'LOOSE_TILE';
+      // riding it down is a move, not an accident: the tile never lands on its rider
+      const p = this.player, rider = !instant && p.alive && p.onGround && !p.act && this.footSpans().includes(s);
       if (i > 0) {
         const below = c.spans[i - 1];
         below.cl = below.baseCl = s.cl; below.ctex = s.ctex; below.sky = below.sky || s.sky;
@@ -414,7 +417,7 @@
         for (const b of c.band) if (b.span === s) b.span = below;
         if (below.plate) below.plate.jammed = true; // rubble holds a plate down for good
         if (instant) this.spawn({ type: 'deco', x, y, z0: below.fl, sprite: 'RUBBLE' });
-        else this.spawn({ type: 'fallingTile', x, y, z0, landZ: below.fl, sprite });
+        else this.spawn({ type: 'fallingTile', x, y, z0, landZ: below.fl, sprite, rider });
       } else {
         s.origFl = s.baseFl; s.fl = s.baseFl = -60; s.hazard = 'abyss';
         if (!instant) this.spawn({ type: 'fallingTile', x, y, z0, landZ: -40, sprite });
@@ -630,9 +633,10 @@
         else if (!this.blocked(p.x, p.y + sy, p.z, up)) p.y += sy; else { p.vy = 0; p.kvy = 0; }
       }
       // careful at an edge: press Forward again to lower yourself into a hang
+      // (only from the ground: the floor may have fallen away under you since you stopped)
       if (edge && fwd > 0) p.edgeStop = true;
-      else if (!p.careful || fwd < 0 || Math.hypot(p.vx, p.vy) > 0.3) p.edgeStop = false;
-      if (p.edgeStop && fwdEdge && p.careful && this.tryLower()) { p.edgeStop = false; this.afterMove(dt); return; }
+      else if (!p.careful || !p.onGround || fwd < 0 || Math.hypot(p.vx, p.vy) > 0.3) p.edgeStop = false;
+      if (p.edgeStop && fwdEdge && p.careful && p.onGround && this.tryLower()) { p.edgeStop = false; this.afterMove(dt); return; }
       // in the air, near a ledge you face: catch it (C held: hang; Forward: pull up)
       if (!p.onGround && (fwd > 0 || p.careful) && this.tryCatch()) { this.afterMove(dt); return; }
 
@@ -767,7 +771,7 @@
       if (!L) return false;
       p.vx = p.vy = p.vz = 0; p.kvx = p.kvy = 0; p.onGround = false; p.snapUntil = -1; p.upJump = false;
       const hz = L.z - cfg.hangDepth;
-      const ledge = { z: L.z, ex: L.ex, ey: L.ey };
+      const ledge = { z: L.z, ex: L.ex, ey: L.ey, span: L.span };
       if (p.careful) p.act = { kind: 'lower', t: 0, dur: 0.15, x0: p.x, y0: p.y, z0: p.z, x1: L.hx, y1: L.hy, z1: hz, ledge };
       else p.act = { kind: 'climb', t: 0, dur: cfg.climbTime * Math.max(0.5, (L.z - p.z + 0.4) / 1.3), x0: p.x, y0: p.y, z0: p.z, x1: L.ex, y1: L.ey, z1: L.z };
       this.sound('grab', undefined, undefined, 0.8);
@@ -785,6 +789,8 @@
     /** Careful-stopped at an edge: lower yourself over it into a hang (facing the drop). */
     tryLower(dry = false) {
       const p = this.player, cfg = this.cfg, fr = cfg.footRadius;
+      const here = this.supportAt(p.x, p.y);
+      if (here.fz < p.z - 0.05) return false;           // the floor under you is gone (a loose floor fell): no ledge to hang from
       const f = this.facingAxis();
       const other = f.ax === 'x' ? { ax: 'y', s: Math.sin(p.ang) >= 0 ? 1 : -1 } : { ax: 'x', s: Math.cos(p.ang) >= 0 ? 1 : -1 };
       for (const { ax, s } of [f, other]) {
@@ -808,7 +814,7 @@
         }
         if (!ok) continue;
         if (dry) return true;
-        const ledge = { z: p.z, ex: ax === 'x' ? lip - s * 0.35 : p.x, ey: ax === 'y' ? lip - s * 0.35 : p.y };
+        const ledge = { z: p.z, ex: ax === 'x' ? lip - s * 0.35 : p.x, ey: ax === 'y' ? lip - s * 0.35 : p.y, span: here.span };
         p.act = { kind: 'lower', t: 0, dur: cfg.lowerTime, x0: p.x, y0: p.y, z0: p.z, x1: hx, y1: hy, z1, ledge, toFloor };
         p.vx = p.vy = p.vz = 0; p.onGround = false;
         this.sound('grab', undefined, undefined, 0.6);
@@ -836,12 +842,13 @@
         }
       } else if (a.kind === 'hang') {
         p.x = a.x; p.y = a.y; p.z = a.z;
-        if ((p.jumpBuf >= 0 && this.time - p.jumpBuf <= cfg.jumpBuffer) || (fwdEdge && a.t > 0.2)) {
+        const L = a.ledge.span, gone = !!(L && L.loose && L.loose.state === 'fallen');   // the ledge (a loose floor) fell away
+        if (!gone && ((p.jumpBuf >= 0 && this.time - p.jumpBuf <= cfg.jumpBuffer) || (fwdEdge && a.t > 0.2))) {
           p.jumpBuf = -1;
           if (this.blockedAtDest(a.ledge.ex, a.ledge.ey, a.ledge.z)) { this.sound('noway', undefined, undefined, 0.5); return; }
           p.act = { kind: 'climb', t: 0, dur: cfg.pullTime, x0: p.x, y0: p.y, z0: p.z, x1: a.ledge.ex, y1: a.ledge.ey, z1: a.ledge.z };
           this.sound('climb', undefined, undefined, 0.6);
-        } else if (!p.careful || (inp.fwd || 0) < 0) {
+        } else if (gone || !p.careful || (inp.fwd || 0) < 0) {
           // let go: the fall is measured from the hang
           p.act = null; p.onGround = false; p.vz = 0; p.vx = p.vy = 0; p.fallFrom = p.z; p.airCap = 0.3; p.screamed = false;
           this.sound('drop', undefined, undefined, 0.5);
