@@ -110,7 +110,7 @@
     }
     /** Restart the current level as it was when you arrived. */
     restartLevel() {
-      const keep = { clock: this.persist.clock, deaths: this.persist.deaths };
+      const keep = { clock: this.persist.clock, deaths: this.persist.deaths, timed: this.persist.timed };
       this.persist = Object.assign(JSON.parse(JSON.stringify(this.levelStart.persist)), keep);
       this.loadLevel(this.levelIndex);
     }
@@ -498,7 +498,7 @@
     }
     /** Back to the last checkpoint, with the world as it was when it was lit. */
     respawn() {
-      const cp = this.cp, keep = { clock: this.persist.clock, deaths: this.persist.deaths };
+      const cp = this.cp, keep = { clock: this.persist.clock, deaths: this.persist.deaths, timed: this.persist.timed };
       const evs = this.events.slice(0, cp.nEvents);
       this.persist = Object.assign(JSON.parse(JSON.stringify(cp.persist)), keep);
       this.loadLevel(this.levelIndex, { respawn: true });
@@ -652,7 +652,7 @@
           p.z = sup.cz - cfg.height;
           if (p.vz > 0) { p.vz = 0; this.sound('bump', undefined, undefined, 0.4); this.reachUp(); }
         }
-        if (!p.screamed && p.fallFrom - p.z > cfg.fallHurt) { p.screamed = true; this.sound('scream'); }
+        if (!p.screamed && p.fallFrom - p.z > cfg.fallHurt) { p.screamed = true; this.sound('scream'); this.face('ouch'); }
         if (p.z <= sup.fz) { p.z = sup.fz; this.land(sup); p.vz = 0; p.onGround = true; p.lastGround = this.time; }
       }
       // head bob + footsteps
@@ -994,7 +994,7 @@
     // ============================================================== save/load
     /** Saves are made at level starts: level index + what carries over. */
     serialize() {
-      const persist = Object.assign(JSON.parse(JSON.stringify(this.levelStart.persist)), { clock: this.persist.clock, deaths: this.persist.deaths });
+      const persist = Object.assign(JSON.parse(JSON.stringify(this.levelStart.persist)), { clock: this.persist.clock, deaths: this.persist.deaths, timed: this.persist.timed });
       return { v: 2, campaign: this.camp.id, level: this.levelIndex, persist, savedAt: Date.now() };
     }
     deserialize(s) {

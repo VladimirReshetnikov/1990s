@@ -239,11 +239,11 @@
     }
 
     // ---------------------------------------------------------- automap
-    /** Top-down map of the height band the player is in (stacked levels). */
+    /** Top-down map of one storey: the player's, or mapDz above/below it (PgUp/PgDn). */
     drawAutomap(game) {
       const W = this.W, VH = this.app.viewH, s = this.s, world = game.world, p = game.player;
       this.rect(0, 0, W, VH, rgb('#000000'));
-      const z = p.z, MW = world.W;
+      const dz = this.mapDz || 0, z = p.z + dz, MW = world.W;
       const zoom = this.mapZoom * s;
       const cx = W / 2 - p.x * zoom, cy = VH / 2 - p.y * zoom;
       const b = this.buf;
@@ -270,9 +270,8 @@
       const y0 = Math.max(0, Math.floor(-cy / zoom) - 1), y1 = Math.min(world.H - 1, Math.ceil((VH - cy) / zoom) + 1);
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
         const c = world.cells[y * MW + x];
-        if (!c.seen && !game.revealMap) continue;
         const sp = bandSpan(c);
-        if (!sp) continue;
+        if (!sp || (!sp.seen && !game.revealMap)) continue;
         const sx = cx + x * zoom, sy = cy + y * zoom;
         const depth = z - sp.fl;
         if (sp.hazard === 'lava') this.rect(sx + 1, sy + 1, zoom - 1, zoom - 1, rgb('#6a1808'));
@@ -298,14 +297,15 @@
         const it = game.items[e.spec.item];
         this.rect(cx + e.x * zoom - s, cy + e.y * zoom - s, 2 * s + 1, 2 * s + 1, it && it.color ? rgb(it.color) : COL.gold);
       }
-      const px = cx + p.x * zoom, py = cy + p.y * zoom, a = p.ang, Lr = 5 * s;
+      const px = cx + p.x * zoom, py = cy + p.y * zoom, a = p.ang, Lr = dz ? 3 * s : 5 * s;
       const tip = [px + Math.cos(a) * Lr, py + Math.sin(a) * Lr];
       line(tip[0], tip[1], px + Math.cos(a + 2.5) * Lr * 0.8, py + Math.sin(a + 2.5) * Lr * 0.8, COL.white);
       line(tip[0], tip[1], px + Math.cos(a - 2.5) * Lr * 0.8, py + Math.sin(a - 2.5) * Lr * 0.8, COL.white);
       line(px - Math.cos(a) * Lr * 0.6, py - Math.sin(a) * Lr * 0.6, tip[0], tip[1], COL.white);
       const lv = this.app.camp.levels[game.levelIndex];
-      this.textC(lv.name.toUpperCase(), W / 2, 4 * s, gradGold, s);
-      this.textC('TAB: CLOSE   +/-: ZOOM   (SHOWS YOUR HEIGHT LEVEL)', W / 2, VH - 10 * s, COL.dim, s);
+      const k = Math.round(dz / 1.5);
+      this.textC(lv.name.toUpperCase() + (k ? `  -  ${Math.abs(k)} STOREY${Math.abs(k) > 1 ? 'S' : ''} ${k > 0 ? 'ABOVE' : 'BELOW'}` : ''), W / 2, 4 * s, gradGold, s);
+      this.textC('TAB: CLOSE   +/-: ZOOM   PGUP/PGDN: STOREY', W / 2, VH - 10 * s, COL.dim, s);
     }
 
     // ---------------------------------------------------------- dialog

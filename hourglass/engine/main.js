@@ -161,7 +161,7 @@
       if (this.opts.alwaysRun) run = !run;
       const careful = k('KeyC');
       if (careful) run = false;
-      const look = (k('PageDown', 'KeyZ') ? 1 : 0) - (k('PageUp', 'KeyX') ? 1 : 0);
+      const look = this.showMap ? 0 : (k('PageDown', 'KeyZ') ? 1 : 0) - (k('PageUp', 'KeyX') ? 1 : 0);
       return {
         fwd, strafe, turn, run, careful, look: -look, center: k('Home', 'End'),
         jump: this.wasPressed('Space'), use: this.wasPressed('KeyE', 'Enter', 'NumpadEnter'), about: this.wasPressed('KeyQ'),
@@ -235,6 +235,7 @@
       if (kind === 'pause') {
         return [
           { label: 'Resume', action: () => this.closeMenus() },
+          { label: 'Back to the Brazier', action: () => { this.closeMenus(); this.startMelt(); this.game.persist.deaths++; this.game.respawn(); this.state = 'play'; this.acc = 0; } },
           { label: 'Restart Level', action: () => this.restartLevel() },
           { label: 'Options', action: () => this.openMenu('options') },
           { label: 'Controls', action: () => this.openMenu('controls') },
@@ -293,10 +294,12 @@
       if (this.wasPressed('KeyF')) this.toggleFullscreen();
       if (this.state === 'play') {
         if (this.wasPressed('Escape')) { this.state = 'menu'; this.menuKind = 'pause'; this.menuCursor = 0; this.menuStack = []; this.audio.play('select'); }
-        else if (this.wasPressed('Tab', 'KeyM')) this.showMap = !this.showMap;
+        else if (this.wasPressed('Tab', 'KeyM')) { this.showMap = !this.showMap; ui.mapDz = 0; }
         if (this.showMap) {
           if (this.wasPressed('Equal', 'NumpadAdd')) ui.mapZoom = Math.min(16, ui.mapZoom + 1);
           if (this.wasPressed('Minus', 'NumpadSubtract')) ui.mapZoom = Math.max(2, ui.mapZoom - 1);
+          if (this.wasPressed('PageUp')) ui.mapDz = Math.min(12, (ui.mapDz || 0) + 1.5);
+          if (this.wasPressed('PageDown')) ui.mapDz = Math.max(-12, (ui.mapDz || 0) - 1.5);
         }
         // fixed physics step: jumps land the same at any frame rate
         const inp = this.readInput(), pend = this.pendingInput;
@@ -327,7 +330,7 @@
       } else if (this.state === 'dead') {
         this.deadT += dt;
         g.update(dt, null);
-        if ((this.deadT > 0.45 && this.wasPressed('Enter', 'Space', 'NumpadEnter', 'KeyE')) || this.deadT > 2.2) { this.startMelt(); g.respawn(); this.state = 'play'; this.acc = 0; this.ui.addMessage(this.camp.respawnMessage || 'YOU TRY AGAIN...', 2); }
+        if ((this.deadT > 0.6 && this.wasPressed('Enter', 'Space', 'NumpadEnter', 'KeyE')) || this.deadT > 1.8) { this.startMelt(); g.respawn(); this.state = 'play'; this.acc = 0; this.ui.addMessage(this.camp.respawnMessage || 'YOU TRY AGAIN...', 2); }
       } else if (this.state === 'complete') {
         this.completeT += dt;
         g.update(dt, null);
@@ -342,7 +345,12 @@
         const k = this.state === 'won' ? 'wonT' : 'timeupT';
         this[k] += dt;
         if (this.state === 'won') g.update(dt, null);
-        if (this[k] > 3 && this.wasPressed('Enter', 'Space', 'Escape')) { this.startMelt(); this.state = 'title'; this.menuKind = 'title'; this.menuCursor = 0; this.game = this.makeGame(); this.audio.playSong(this.camp.titleMusic || null); }
+        if (this.state === 'timeup' && this[k] > 3 && this.wasPressed('Enter', 'Space')) {
+          // the Sultan has drunk... but the thief may still walk out of the dungeon
+          this.startMelt(); g.persist.timed = false; this.state = 'play'; this.acc = 0; this.saveGame();
+          this.ui.addMessage('THE HOURGLASS IS EMPTY. YOU WANDER ON, WITHOUT A LIMIT.', 6);
+          this.audio.playSong(this.currentMusic());
+        } else if (this[k] > 3 && this.wasPressed('Enter', 'Space', 'Escape')) { this.startMelt(); this.state = 'title'; this.menuKind = 'title'; this.menuCursor = 0; this.game = this.makeGame(); this.audio.playSong(this.camp.titleMusic || null); }
       } else if (this.state === 'intro') {
         this.introT += dt;
         if (this.wasPressed('Enter', 'Space', 'Escape', 'NumpadEnter')) {
@@ -413,13 +421,13 @@
       else if (this.state === 'dead') {
         ui.textC(this.camp.deathTitle || 'YOU HAVE PERISHED', W / 2, this.viewH * 0.35, R.UIGRAD.red, s * 2);
         if (g.deathCause) ui.textC(g.deathCause.toUpperCase(), W / 2, this.viewH * 0.35 + 22 * s, R.UICOL.text, s);
-        if (this.deadT > 0.45) ui.textC('PRESS ENTER', W / 2, this.viewH * 0.35 + 34 * s, R.UICOL.dim, s);
+        if (this.deadT > 0.6) ui.textC('PRESS ENTER', W / 2, this.viewH * 0.35 + 34 * s, R.UICOL.dim, s);
       } else if (this.state === 'complete') {
         ui.textC('LEVEL COMPLETE', W / 2, this.viewH * 0.35, R.UIGRAD.gold, s * 2);
       } else if (this.state === 'timeup') {
         ui.textC('THE LAST GRAIN HAS FALLEN', W / 2, this.viewH * 0.3, R.UIGRAD.red, s * 2);
         if (this.timeupT > 1.5) ui.textC(this.camp.timeupText || 'THE SULTAN DRINKS. YOU ARE TOO LATE.', W / 2, this.viewH * 0.3 + 24 * s, R.UICOL.text, s);
-        if (this.timeupT > 3) ui.textC('PRESS ENTER', W / 2, this.H - 12 * s, R.UICOL.dim, s);
+        if (this.timeupT > 3) ui.textC('ENTER: WANDER ON WITHOUT A LIMIT     ESC: TITLE', W / 2, this.H - 12 * s, R.UICOL.dim, s);
       } else if (this.state === 'won') this.drawWon();
     }
 
