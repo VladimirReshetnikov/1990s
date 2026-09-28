@@ -336,7 +336,7 @@
         g.update(dt, null);
         if (this.completeT > 1.2) {
           if (g.nextLevel()) this.showCard();
-          else { this.state = 'won'; this.wonT = 0; this.wonInfo = this.camp.ending || {}; this.clearSave(); }
+          else { this.state = 'won'; this.wonT = 0; this.wonInfo = this.camp.ending || {}; this.clearSave(); this.audio.playSong(this.camp.endingMusic || null); }
         }
       } else if (this.state === 'card') {
         this.cardT += dt;
@@ -530,7 +530,7 @@
       let y = (40 + lines.length * 9) * s;
       const row = (k, v) => { ui.text(k, W / 2 - 90 * s, y, R.UICOL.gold, s); ui.textR(v, W / 2 + 90 * s, y, R.UICOL.white, s); y += 10 * s; };
       row('TIME', U.formatTime(p.clock));
-      row('GEMS', `${p.gems} / ${p.gemTotal || '?'}`);
+      row('GEMS', `${p.gems} / ${g.totalGems()}`);
       row('SECRETS', String(p.secrets));
       row('MISHAPS', String(p.deaths));
       if (this.wonT > 3 && Math.floor(this.wonT * 2) % 2) ui.textC('PRESS ENTER', W / 2, this.H - 12 * s, R.UICOL.dim, s);

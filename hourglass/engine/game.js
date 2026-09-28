@@ -154,6 +154,21 @@
       return it;
     }
     isDrink(id) { return DRINKS.includes(this.itemDef(id).kind); }
+    /** How many gems the whole campaign hides (for the final tally). */
+    totalGems() {
+      if (this._gemTotal !== undefined) return this._gemTotal;
+      const templates = this.camp.entityTemplates || {};
+      let n = 0;
+      for (const lv of this.camp.levels) {
+        try {
+          for (const raw of R.compileLevel(this.camp, lv).spawns) {
+            const spec = raw.tpl ? Object.assign({}, templates[raw.tpl], raw) : raw;
+            if (spec.type === 'item' && this.items[spec.item] && this.items[spec.item].kind === 'gem') n++;
+          }
+        } catch (e) { /* a broken level counts nothing */ }
+      }
+      return (this._gemTotal = n);
+    }
 
     // ============================================================== checkpoint event log
     /** Record a permanent change so a checkpoint can rebuild the world as it was. */
