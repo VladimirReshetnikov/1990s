@@ -87,12 +87,15 @@ function calm(g) {
 
 /** Replay one edge; returns { ok, note, secs, trace }. */
 function replayEdge(lv, rnd, e, opts = {}) {
-  if ((e.from.anim && e.from.anim.type === 'bob') || (e.to.anim && e.to.anim.type === 'bob')) return { skip: true, note: 'moving floor (bob): timing not replayed' };
+  const mov = s => s.anim && (s.anim.type === 'bob' || s.anim.type === 'lift');
+  if (mov(e.from) || mov(e.to)) return { skip: true, note: 'moving floor (bob/lift): timing not replayed' };
   let lastMsg = '';
   const g = V.makeGame(lv, { msg: t => { lastMsg = t; } });
   applyState(g, rnd.state);
   if (opts.calm) calm(g);
   const from = spanOf(g, sid(e.from)), to = spanOf(g, sid(e.to));
+  // loose ceiling flags the solver knocked down (map them all first: dropping re-indexes a cell's spans)
+  for (const u of (rnd.gone || []).map(q => spanOf(g, sid(q)))) if (u && u.loose) g.dropFloor(u, true);
   for (const c of g.world.cells) for (const s of c.spans) if (s !== to) s.exit = false;
   const p = g.player, cfg = g.cfg;
   const [dx, dy] = e.dir || [1, 0];

@@ -75,7 +75,7 @@
     }
     noise(o, out) {
       const ctx = this.ctx, t0 = ctx.currentTime + (o.delay || 0), dur = o.dur || 0.2;
-      const src = ctx.createBufferSource(); src.buffer = this.noiseBuf;
+      const src = ctx.createBufferSource(); src.buffer = this.noiseBuf; src.loop = true;  // long noises never run off the buffer
       src.playbackRate.value = o.rate || 1;
       const f = ctx.createBiquadFilter(); f.type = o.filter || 'lowpass';
       f.frequency.setValueAtTime(o.f0 || 1000, t0);

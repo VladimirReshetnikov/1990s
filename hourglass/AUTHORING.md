@@ -32,12 +32,18 @@ console.
     name: 'The Chasm of Echoes',
     subtitle: 'One line under the title on the level card.',
     width: 40, height: 24,                   // every layer map is exactly width x height
-    music: 'chasm',                          // song name (game/audio.js)
+    music: 'chasm',                          // song name (game/audio.js); a template's `music` switches songs for an area
     startMessage: 'Shown for 7 s when the level begins.',
+    falloff: 0.5,                            // optional: how fast light fades with distance (campaign 1.05; lower for vast caverns)
+    sky: 'STARS',                            // optional sky texture for `sky: true` spans
     legend: { /* level characters; must not shadow campaign characters */ },
     layers: [
       { z: 0,   map: [ /* height rows of width chars */ ] },
-      { z: 1.5, map: [ ... ] },              // z is a multiple of 1.5 (a storey)
+      { z: 1.5, map: [ ... ], legend: { /* characters for this layer only */ }, defaults: { light: 18 } },
+    ],                                       // z is a multiple of 1.5 (a storey); `defaults` apply to every template of the layer
+    ents: [                                  // entities placed by coordinate (saves legend characters)
+      { x: 12, y: 5, z: 1.5, tpl: 'darts', dir: 'W' },     // z = height of the floor it stands on
+      { x: 3, y: 9, z: 0, type: 'deco', sprite: 'SKELETON_SITTING', dx: -0.3 },
     ],
     scripts: { name(g, ctx) { ... } },        // for plate/lever/door/enter/use/trigger `script`
     onStart: 'name',                         // optional script at level start
@@ -60,7 +66,14 @@ console.
   `12345` and then the next layer's floor).
 * Rock `' '`/`#` (dungeon wall), `%` (sandstone). Rock faces take the texture of
   the layer band they are in: `wall` for rock, `low` for the face under a
-  span's floor, `up` for the face above its ceiling.
+  span's floor, `up` for the face above its ceiling. Rock faces are pegged to
+  the bottom of their storey, so a lever or sconce sits at the same height on
+  every storey (keep wall features in texture rows 4..46: a 1.25 room shows
+  the bottom 1.25 units of the texture).
+* Open sky: spans with `sky: true` see the level's sky above the highest roof
+  in the level (`rockTop`, computed; set `rockTop` on the level to change it).
+* The top edge of every face with a floor on it, and the floor's edge above a
+  drop, are drawn bright: ledges read without special textures.
 
 ## Campaign characters (game/campaign.js)
 
@@ -73,7 +86,11 @@ console.
 ```
 
 Entity characters (`^ x T C P B Q G` and anything built with `HG.ent`) stand on
-the floor of the cells around them (`base: 'auto'`).
+the plain floor of the cells around them (`base: 'auto'`: the neighbour nearest
+the layer's own height, never its hazards or animations). To put one on a
+particular floor, give it a template: `HG.item('gem', {}, { base: 'd' })`.
+The campaign floor sets no music: the level's `music` plays everywhere unless
+a template sets its own.
 
 ## Helpers (`R.HG`) for level legends
 
@@ -82,6 +99,7 @@ the floor of the cells around them (`base: 'auto'`).
 '=': HG.plate({ opens: 'g1', hold: 8 }),         // plate: raises g1 for 8 s (hold 0 = for good)
 '-': HG.plate({ closes: 'g1' }),                 // a closer plate
 'k': HG.item('key_bronze'),                      // also key_silver, key_gold, seal, potion, bigpotion, poison, gem
+                                                 // HG.item/note/trigger(…, spec, template): spec -> entity, template -> legend entry
 'd': HG.keyDoor('key_bronze'),                   // locked wooden door
 'v': HG.lever({ opens: 'g2' }),                  // rock face with a lever (use it with E from the next cell)
 'n': HG.note('SCRATCHED ON THE WALL', 'text'),   // readable note (E)
@@ -102,15 +120,25 @@ the floor of the cells around them (`base: 'auto'`).
 used, on rock), and:
 
 * `loose: { delay }` — drops `delay` s (default 0.7) after it is touched.
-  Walking or running crosses it; stopping or a careful step rides it down.
-  A tile with a plate below jams the plate down for good.
+  Walking or running crosses it; stopping or a careful step rides it down
+  (safely: the slab never lands on its rider). A tile with a plate below jams
+  the plate down for good (the plate's `msg` and `script` run then too).
+  `loose: { armed: false }` is solid floor until a script calls
+  `g.armLoose(tag)`; `g.crumble(tag, x, y, speed, lag)` sends a wave of falling
+  floor through the tagged tiles from (x, y) — a crumbling bridge behind you.
+  A straight-up jump under a loose flag (ceiling <= floor + 1.4) knocks it down.
+* `forbid: true` — the solver must never reach this span (an ERROR if it does):
+  use it on wall tops and beams that would be shortcuts.
 * `plate: { opens, closes, hold, lift: { tag, to, prop, speed }, script, msg }`
-* `door: { key, remote, see, tex, h, speed, closeSpeed, sound, msg, openMsg, secret, open, script, group }`
+* `door: { key, remote, see, axis, tex, h, speed, closeSpeed, sound, msg, openMsg, secret, open, script, group }`
+  (`see`: see-through bars drawn on the cell's mid-plane across the passage; `axis: 'x'|'y'` picks that plane
+  when the passage is ambiguous — 'x' is a plane of constant x, across an east-west corridor)
 * `lever: { opens, closes, hold, lift, msg, once, texOn, texOff }` (on `solid: true`)
 * `anim`:
-  * `{ type: 'crusher', period: 3.6, phase, min, msg }` — ceiling slams (death)
+  * `{ type: 'crusher', period: 3.6, phase, min, msg }` — ceiling slams (death); it creaks 0.3 s before
   * `{ type: 'cycle', period: 2.4, phase, duty, hazard, texOn, texOff }` — a floor that turns hazardous on a beat (vents, sinking slag)
-  * `{ type: 'bob', period: 4.8, phase, amp }` — floor rises and falls (stepping stones, automatic lifts); keep tops >= 1.2 below the ceiling
+  * `{ type: 'bob', period: 4.8, phase, amp }` — floor rises and falls smoothly (stepping stones); keep tops >= 1.2 below the ceiling
+  * `{ type: 'lift', period: 9.6, phase, amp: 1.5, dwell: 2.4 }` — an automatic lift: waits `dwell` s at the bottom and at the top
   * `{ type: 'flicker', depth }` — torch light
 
 ## Entities (`ent: {...}`, or templates with `tpl`)
@@ -122,14 +150,16 @@ used, on rock), and:
 | `darts` (`tpl: 'darts'`) | `dir` (flight direction), `period` 2.4, `phase`, `speed` 5, `range` — place it in the cell in front of the wall the darts come out of |
 | `rock` (`tpl: 'rock'`) | `period` 3.6, `phase` — dust, then a falling rock on that cell |
 | `flame` (`tpl: 'flame'`) | `period` 2.4, `phase`, `duty` — floor vent |
-| `boulder` (`tpl: 'boulder'`) | `path: [[dx, dy], ...]` from the cell, `mode: 'oneway'`, `speed`, `phase` |
+| `boulder` (`tpl: 'boulder'`) | `path: [[dx, dy], ...]` from the cell, `mode: 'oneway'`, `speed`, `phase`, `endSound` — it follows the floor (stairs) |
 | `pendulum` (`tpl: 'pendulum'`) | `axis: 'x'|'y'` (swing direction), `amp`, `period`, `phase` |
 | `patrol`, `orbit`, `trap` | see engine/entities.js |
 | `item` | `item` |
 | `note` | `title`, `text` |
 | `trigger` | `text`, `script`, `once`, `radius` |
-| `checkpoint` (`C`) | brazier: lighting it snapshots the world for respawns |
-| `deco` | `sprite`, `z`, `solid`, `radius`, `height` |
+| `checkpoint` (`C`) | brazier: lighting it snapshots the world for respawns; `radius` (0.5) |
+| `deco` | `sprite`, `z` (above its floor), `zAbs` (absolute height: a torch high on a chasm wall), `scale`, `solid`, `radius`, `height` |
+
+Any entity takes `scale` (sprite size) and `dx`/`dy` (nudge within the cell).
 
 Every period is a multiple of the 0.6 s beat. A `phase` is a fraction of the
 period; choose phases so neighbouring hazards are offset by multiples of 0.3 s

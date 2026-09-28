@@ -72,7 +72,7 @@
 
   /** Checkpoint brazier: lights when touched and becomes the respawn point. */
   T.register('checkpoint', {
-    init(e) { e.radius = 0.5; e.solid = false; e.height = 1.0; },
+    init(e) { e.radius = e.spec.radius ?? 0.5; e.solid = false; e.height = 1.0; },
     touch(e, g) {
       if (e.lit) return;
       for (const o of g.ents) if (o.type === 'checkpoint') o.lit = false;
@@ -228,7 +228,11 @@
     },
   });
 
-  /** Patroller: walks a fixed path — back and forth, in a loop, or one way and restart. */
+  /**
+   * Patroller: walks a fixed path — back and forth, in a loop, or one way and restart
+   * (a rolling boulder). It follows the floor under it (stairs); endSound plays where
+   * a one-way run ends.
+   */
   T.register('patrol', {
     init(e) {
       const s = e.spec, abs = s.abs;
@@ -256,7 +260,19 @@
         if (s.sound && e.odo > (s.soundEvery || 1.2)) { e.odo = 0; g.sound(s.sound, nx, ny, 0.6, e.z0); }
       }
       e.flip = e.x !== undefined && nx < e.x;
+      const total = i === 0 ? d : e.segs.slice(0, i).reduce((q, l) => q + l, 0) + d;
+      const wrapped = e.lastD !== undefined && total < e.lastD - 1e-6;
+      if (wrapped && s.endSound && g.player) { const end = e.path[e.path.length - 1]; g.sound(s.endSound, end[0], end[1], 1, e.zf ?? e.z0); }
+      e.lastD = total;
       e.x = nx; e.y = ny;
+      // follow the floor under it (up and down stairs); a restart puts it back at its spawn floor
+      if (g.world) {
+        if (wrapped || e.zf === undefined) e.zf = e.z0;
+        const c = g.world.cellAt(Math.floor(nx), Math.floor(ny));
+        const sp = c && (R.spanAt(c, e.zf + 0.4) || R.spanBelow(c, e.zf + 0.4));
+        if (sp) e.zf = sp.fl;
+        e.z = e.zf + e.zOff;
+      }
     },
     touch(e, g) { harm(e, g); },
   });

@@ -29,7 +29,8 @@
 (function (R) {
   'use strict';
   const ent = (e, extra) => Object.assign({ base: 'auto', ent: e }, extra || {});
-  const FLOOR = { fl: 0, cl: 1.25, ftex: 'SAND_FLOOR', ctex: 'CEIL_DUNGEON', wall: 'DUNGEON_WALL', light: 13, music: 'dungeon' };
+  // (no music here: a level plays its own `music`; a template may switch songs for an area)
+  const FLOOR = { fl: 0, cl: 1.25, ftex: 'SAND_FLOOR', ctex: 'CEIL_DUNGEON', wall: 'DUNGEON_WALL', light: 13 };
 
   /**
    * Building blocks for level legends (spread them into a legend entry):
@@ -38,6 +39,8 @@
    *   'k': HG.item('key_bronze')            'n': HG.note('TITLE', 'text')
    *   'd': HG.keyDoor('key_bronze')         'v': HG.lever({ opens: 'g2' }) (a rock face with a lever)
    *   'a': HG.trigger('text')              any char: HG.floor({ light: 20 }), HG.ent({ tpl: 'darts', dir: 'W' })
+   * HG.item / HG.note / HG.trigger take (…, spec, template): `spec` goes to the entity,
+   * `template` to the legend entry (e.g. { base: 'd' } to stand on a specific floor).
    */
   const HG = R.HG = {
     floor: (extra = {}) => Object.assign({ base: '.' }, extra),
@@ -45,9 +48,9 @@
     plate: (plate, extra = {}) => Object.assign({ base: '.', plate: Object.assign({ hold: 0 }, plate), ftex: plate.ftex || 'PLATE_FLAT' }, extra),
     keyDoor: (key, { door, ...rest } = {}) => Object.assign({ base: '.', label: null, door: Object.assign({ key, tex: 'DOOR_WOOD' }, door || {}) }, rest),
     lever: (lever, extra = {}) => Object.assign({ solid: true, wall: 'LEVER_UP', lever }, extra),
-    item: (item, extra = {}) => ent(Object.assign({ type: 'item', item }, extra)),
-    note: (title, text, extra = {}) => ent(Object.assign({ type: 'note', title, text }, extra)),
-    trigger: (text, extra = {}) => ent(Object.assign({ type: 'trigger', text }, extra)),
+    item: (item, extra = {}, tpl = {}) => ent(Object.assign({ type: 'item', item }, extra), tpl),
+    note: (title, text, extra = {}, tpl = {}) => ent(Object.assign({ type: 'note', title, text }, extra), tpl),
+    trigger: (text, extra = {}, tpl = {}) => ent(Object.assign({ type: 'trigger', text }, extra), tpl),
     ent,
   };
 
@@ -116,7 +119,7 @@
       spikes: { type: 'spikes', spriteOn: 'SPIKES_UP', spriteOff: 'SPIKES_DOWN', hold: 1.5 },
       spikesUp: { type: 'spikes', static: true, spriteOn: 'SPIKES_UP' },
       // every periodic hazard runs on the 0.6 s dungeon beat: periods are multiples of 0.6
-      slicer: { type: 'slicer', period: 2.4, bladeTex: 'SLICER_JAWS' },
+      slicer: { type: 'slicer', period: 2.4, bladeTex: 'SLICER_JAWS', radius: 0.25 },
       flame: { type: 'trap', spriteOn: 'FLAME', spriteOff: 'VENT', period: 2.4, duty: 0.375, damage: 1, radius: 0.42, sound: 'whoosh', brightOn: true, msg: 'Scorched!' },
       darts: { type: 'darts', period: 2.4, speed: 5 },
       rock: { type: 'rock', period: 3.6 },

@@ -61,8 +61,10 @@
     /** Which mid-plane a thin wall in span s lies on: 'x' (x = const) or 'y'. Across the corridor. */
     thinAxis(world, s) {
       if (s.thinAxis) return s.thinAxis;
+      if (s.door && s.door.axis) return (s.thinAxis = s.door.axis);
       const c = s.cell, z0 = s.fl + 0.1, z1 = s.fl + 0.5;
-      const open = (dx, dy) => { const n = world.cellAt(c.x + dx, c.y + dy); return !!n && n.spans.some(q => q.fl < z1 && Math.max(q.cl, q.door ? q.doorTop : 0) > z0); };
+      // a neighbouring gate or door counts as closed (a row of gates across a passage)
+      const open = (dx, dy) => { const n = world.cellAt(c.x + dx, c.y + dy); return !!n && n.spans.some(q => !q.door && q.fl < z1 && q.cl > z0); };
       s.thinAxis = !open(0, -1) && !open(0, 1) ? 'x' : !open(-1, 0) && !open(1, 0) ? 'y' : (open(-1, 0) || open(1, 0) ? 'x' : 'y');
       return s.thinAxis;
     }
@@ -85,7 +87,8 @@
       const eye = cam.z;
       const dirX = Math.cos(cam.ang), dirY = Math.sin(cam.ang), rX = -dirY, rY = dirX;
       const px = cam.x, py = cam.y;
-      const fall = this.falloff, contrast = this.contrast;
+      const fall = this.curFalloff = world.level && world.level.falloff !== undefined ? world.level.falloff : this.falloff, contrast = this.contrast;
+      const rockTop = world.rockTop ?? R.SKY_TOP;
       const lr = cam.light ? cam.light.radius : 0, lb = cam.light ? cam.light.bonus : 0;
       const sky = tex[world.sky] || bank.texture(world.sky);
       const skyW = sky.w, skyH = sky.h, skyData = sky.data, skyHor = skyH * 0.8, skyScale = this.skyScale;
@@ -185,7 +188,25 @@
           const sp = N.spans;
           let q = 0;
           for (let i = 0; i < n; i++) {
-            const S = ws[i], t = wt[i], b = wb[i];
+            const S = ws[i], b = wb[i];
+            let t = wt[i];
+            // open to the sky: beyond this boundary nothing rises above the rock line
+            if (S.sky && rockTop < S.cl) {
+              let rt = Math.ceil(hz + (eye - rockTop) * k - 0.5);
+              const hzr = Math.ceil(hz);
+              if (rt > hzr) rt = hzr;
+              if (rt > b) rt = b;
+              if (rt > t) {
+                if (skyU < 0) skyU = skyCol();
+                const so = skyU * skyH;
+                for (let r = t; r < rt; r++) {
+                  let v = ((r + 0.5 - hz) * skyScale + skyHor) | 0; if (v < 0) v = 0; else if (v >= skyH) v = skyH - 1;
+                  buf[r * W + col] = S0[7936 + skyData[so + v]]; zb[r * W + col] = 1e9;
+                }
+                t = rt;
+              }
+              if (t >= b) continue;
+            }
             const set = S.fog ? S1 : S0;
             const Lw = lightAt(S.light + (side === 0 ? contrast : -contrast), dist);
             let zc = S.door && S.door.see ? S.doorTop : S.cl;
@@ -277,30 +298,34 @@
     /** Draw the solid part of cell N between heights lo..hi, clipped to rows [t, b). */
     solid(buf, col, t, b, world, N, lo, hi, u, dist, hz, eye, L, set) {
       const k = this.proj / dist, pieces = R.solidPieces(world, N, lo, hi, this.pieces), tex = this.bank.tex;
+      // a floor sits on top of this face: its top edge is a ledge lip, drawn bright
+      let lipRow = -1;
+      for (const s of N.spans) if (Math.abs(s.fl - hi) < 1e-3 && !s.hazard) { lipRow = Math.ceil(hz + (eye - (hi - 0.06)) * k - 0.5); break; }
       for (let p = 0; p < pieces.length; p += 5) {
         let r0 = Math.ceil(hz + (eye - pieces[p + 1]) * k - 0.5), r1 = Math.ceil(hz + (eye - pieces[p]) * k - 0.5);
         if (r0 < t) r0 = t; if (r1 > b) r1 = b;
         if (r1 <= r0) continue;
         const mode = pieces[p + 3];
         const tx = tex[pieces[p + 2]];
-        if (mode === 0) this.wall(buf, col, r0, r1, tx, u, 0, true, dist, hz, eye, L, set);
-        else this.wall(buf, col, r0, r1, tx, u, pieces[p + 4], mode === 2, dist, hz, eye, L, set, mode === 1 && pieces[p + 1] >= pieces[p + 4] - 1e-4);
+        const lip = pieces[p + 1] >= hi - 1e-4 ? lipRow : -1;
+        if (mode === 0) this.wall(buf, col, r0, r1, tx, u, 0, true, dist, hz, eye, L, set, lip);
+        else this.wall(buf, col, r0, r1, tx, u, pieces[p + 4], mode === 2, dist, hz, eye, L, set, lip);
       }
     }
 
     /** Draw a vertical wall slice. peg: world z where the texture is anchored. */
-    wall(buf, col, y0, y1, t, u, peg, bottomPeg, dist, hz, eye, L, set, lip = false) {
+    wall(buf, col, y0, y1, t, u, peg, bottomPeg, dist, hz, eye, L, set, lipRow = -1) {
       const W = this.w, zb = this.zbuf, data = t.data, th = t.h, hm = t.hmask;
       const colOff = (u & t.wmask) * th;
       const k = dist / this.proj;
       let v = (peg - (eye - (y0 + 0.5 - hz) * k)) * 64 + (bottomPeg ? th : 0) + OFF;
       const dv = k * 64;
       const base = (t.emissive ? 31 : L) * 256;
-      // the lip: the top 3 texels under a floor edge, lit brighter
-      const lipEnd = lip ? OFF + 3 : -1, lipBase = Math.min(31, L + 9) * 256;
+      // the lip: rows above lipRow (the top 0.06 of a face under a floor edge), lit brighter
+      const lipBase = t.emissive ? base : Math.min(31, L + 9) * 256;
       for (let r = y0; r < y1; r++) {
         const i = r * W + col;
-        buf[i] = set[(v < lipEnd ? lipBase : base) + data[colOff + ((v | 0) & hm)]];
+        buf[i] = set[(r < lipRow ? lipBase : base) + data[colOff + ((v | 0) & hm)]];
         zb[i] = dist;
         v += dv;
       }
@@ -314,7 +339,7 @@
       const W = this.w, VH = this.viewH, proj = this.proj, zb = this.zbuf;
       const dirX = Math.cos(cam.ang), dirY = Math.sin(cam.ang), rX = -dirY, rY = dirX;
       const hz = VH / 2 + cam.pitch, eye = cam.z;
-      const pal = this.pal, fall = this.falloff;
+      const pal = this.pal, fall = this.curFalloff ?? this.falloff;
       const lr = cam.light ? cam.light.radius : 0, lb = cam.light ? cam.light.bonus : 0;
       for (const s of list) {
         const dx = s.x - cam.x, dy = s.y - cam.y;

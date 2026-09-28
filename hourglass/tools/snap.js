@@ -38,12 +38,12 @@ function snap(opts = {}) {
   const buf = new Uint32Array(W * H);
   const app = { W, H, viewH, uiScale, buf, bank, pal, camp, opts: { timeLimit: false } };
   const ui = new R.UI(app);
-  const g = new R.Game(camp, {});
+  let li = 0;
   if (opts.level !== undefined) {
-    const i = isNaN(+opts.level) ? camp.levels.findIndex(l => l.id === opts.level) : +opts.level;
-    if (i < 0) throw new Error(`No level "${opts.level}"`);
-    g.loadLevel(i);
+    li = isNaN(+opts.level) ? camp.levels.findIndex(l => l.id === opts.level) : +opts.level;
+    if (li < 0) throw new Error(`No level "${opts.level}"`);
   }
+  const g = new R.Game(camp, {}, { level: li });
   for (const id of (opts.give || '').split(',').filter(Boolean)) g.give(id, { silent: true });
   const ang = opts.ang === undefined ? undefined : isNaN(+opts.ang) ? R.util.dirAngle(opts.ang) : +opts.ang;
   if (opts.x !== undefined) g.teleport(+opts.x, +opts.y, opts.z !== undefined ? +opts.z : undefined, ang);

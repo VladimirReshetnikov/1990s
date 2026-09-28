@@ -29,6 +29,10 @@
  *   g.openDoor(tag, holdSecs?) g.closeDoor(tag) g.moveSpans(tag, 'fl'|'cl', target, speed, then?)
  *   g.setTex(tag, prop, tex) g.setSpans(tag, props) g.entities(tag) g.remove(e) g.spawn(spec)
  *   g.hurt(n, sx, sy, msg) g.kill(msg) g.heal(n) g.teleport(x, y, z?, ang?) g.win(info)
+ *   g.spansTagged(tag) g.triggerLoose(span) g.dropFloor(span, instant?)
+ *   g.armLoose(tag) — wake loose floors declared { loose: { armed: false } } (they are solid until then)
+ *   g.crumble(tag, x, y, speed = 3.5, lag = 0.3) — a wave of falling floor spreading from (x, y)
+ * Every change made through this API is remembered by the checkpoint event log.
  */
 (function (R) {
   'use strict';
@@ -49,7 +53,8 @@
   const DRINKS = ['life', 'bigLife', 'poison'];
 
   class Game {
-    constructor(camp, hooks = {}) {
+    /** opts.level: the level index to start at (default 0). */
+    constructor(camp, hooks = {}, opts = {}) {
       this.camp = camp;
       this.cfg = U.merge(R.GAME_DEFAULTS, camp.config);
       this.hooks = hooks;
@@ -59,7 +64,7 @@
       for (const n of R.hazards.names()) this.hazardDefs[n] = Object.assign({}, R.hazards.get(n));
       for (const [n, h] of Object.entries(camp.hazards || {})) this.hazardDefs[n] = Object.assign({}, this.hazardDefs[n] || {}, h);
       this.persist = { life: this.cfg.maxLife, maxLife: this.cfg.maxLife, clock: 0, gems: 0, deaths: 0, secrets: 0, relics: {}, timed: false };
-      this.loadLevel(0);
+      this.loadLevel(opts.level || 0);
     }
 
     // ================================================================ levels
@@ -99,7 +104,7 @@
         if (sp.loose) this.spansWith.loose.push(sp);
         if (sp.plate) this.spansWith.plate.push(sp);
       }
-      this.hasBob = this.spansWith.anim.some(s => s.anim.type === 'bob');
+      this.hasBob = this.spansWith.anim.some(s => s.anim.type === 'bob' || s.anim.type === 'lift');
       this.spawnEntities();
       this.cp = { x: s.x, y: s.y, z: s.z, ang: s.ang, nEvents: 0, inv: Object.assign({}, this.inv), persist: JSON.parse(JSON.stringify(this.persist)), maxLife: this.player.maxLife };
       if (lv.onStart && !opts.respawn) this.runScript(lv.onStart, {});
@@ -137,6 +142,7 @@
         sprite: spec.sprite || null, radius: spec.radius ?? 0.3, solid: !!spec.solid, gone: false,
         state: spec.state || 0, tag: spec.tag || null, hang: !!spec.hang, seen: false, initial,
       };
+      if (spec.scale !== undefined) e.scale = spec.scale;
       if (def.init) def.init(e, this);
       if (spec.solid !== undefined) e.solid = !!spec.solid;
       this.ents.push(e);
@@ -167,6 +173,7 @@
       else if (kind === 'lit') { for (const o of this.ents) if (o.type === 'checkpoint') o.lit = false; const e = this.ents[ev[1]]; if (e) e.lit = true; }
       else if (kind === 'fired') { const e = this.ents[ev[1]]; if (e) e.fired = true; }
       else if (kind === 'flag') this.flags[ev[1]] = ev[2];
+      else if (kind === 'arm') { for (const s of (this.world.tags.get(ev[1]) || [])) if (s.loose && s.loose.state === 'dormant') s.loose.state = 'idle'; }
     }
     /** Make the current position (a brazier, a landing...) the respawn point. */
     setCheckpoint(x, y, z, ang) {
@@ -391,12 +398,29 @@
       s.loose.state = 'shaking'; s.loose.t = 0;
       this.sound('rattle', s.cell.x + 0.5, s.cell.y + 0.5, 0.9, s.fl);
     }
+    /** Wake loose floors declared { loose: { armed: false } }: until now they were solid. */
+    armLoose(tag) {
+      for (const s of this.spansTagged(tag)) if (s.loose && s.loose.state === 'dormant') s.loose.state = 'idle';
+      this.record(['arm', tag]);
+    }
+    /** A crumbling wave: every loose floor tagged `tag` starts to shake as the wave (speed u/s) reaches it from (x, y), and drops `lag` s later. */
+    crumble(tag, x, y, speed = 3.5, lag = 0.3) {
+      for (const s of this.spansTagged(tag)) {
+        const L = s.loose;
+        if (!L || (L.state !== 'idle' && L.state !== 'dormant')) continue;
+        L.state = 'shaking'; L.t = -Math.hypot(s.cell.x + 0.5 - x, s.cell.y + 0.5 - y) / speed; L.delay = lag; L.wave = true;
+      }
+      this.sound('crumble', x, y, 0.8);
+    }
     updateLoose(dt) {
       const p = this.player;
       for (const s of this.spansWith.loose) {
         const L = s.loose;
         if (L.state !== 'shaking') continue;
+        const was = L.t;
         L.t += dt;
+        if (L.t < 0) continue;              // the wave has not reached this tile yet
+        if (was < 0) this.sound('rattle', s.cell.x + 0.5, s.cell.y + 0.5, 0.6, s.fl);
         s.fl = s.baseFl + Math.sin(L.t * 70) * 0.012;
         if (p.onGround && Math.abs(p.z - s.baseFl) < 0.1 && Math.abs(p.x - s.cell.x - 0.5) < 0.6 && Math.abs(p.y - s.cell.y - 0.5) < 0.6) this.shake(0.03);
         if (L.t >= (L.delay ?? this.cfg.looseDelay)) this.dropFloor(s);
@@ -438,6 +462,8 @@
           this.sound('click', s.cell.x + 0.5, s.cell.y + 0.5, 1, s.fl);
           if (P.opens) this.openDoor(P.opens, 0);
           if (P.lift && !P.lifted) { P.lifted = true; this.moveSpans(P.lift.tag, P.lift.prop || 'fl', P.lift.to, P.lift.speed || 0.8); }
+          if (P.script && !this.replaying) this.runScript(P.script, { span: s, jammed: true });
+          if (P.msg && !P.said && !this.replaying) { P.said = true; this.msg(P.msg); }
         }
         if (P.jamDone) continue;
         const on = p.onGround && feet.includes(s);
@@ -544,6 +570,7 @@
       for (const s of this.spansWith.anim) {
         R.cellAnims.get(s.anim.type).update(s, this.time, this);
         if (s.anim.justSlammed) this.sound('crush', s.cell.x + 0.5, s.cell.y + 0.5, 0.8, s.fl);
+        if (s.anim.justWarned) this.sound('creak', s.cell.x + 0.5, s.cell.y + 0.5, 0.7, s.fl);
       }
       this.updateDoors(dt);
       if (this.movers.length) this.updateMovers(dt);
@@ -990,12 +1017,14 @@
         }
         const spr = bank.sprite(name);
         const c = this.world.cellAt(Math.floor(e.hang ? e.x0 : e.x), Math.floor(e.hang ? e.y0 : e.y));
-        const s = c && (R.spanAt(c, e.z0 + 0.02) || R.spanBelow(c, e.z0 + 0.02));
+        const zAbs = e.spec.zAbs, zq = zAbs !== undefined ? zAbs : e.free ? e.z : (e.zf ?? e.z0);
+        const s = c && (R.spanAt(c, zq + 0.02) || R.spanBelow(c, zq + 0.02));
         let z;
-        if (e.hang || spr.hang) z = (s ? s.cl : e.z0 + 1.25) - spr.h / 64 * spr.scale * (e.scale || 1) - (e.spec.drop || 0);
+        if (zAbs !== undefined) z = zAbs;       // mounted at an absolute height (a torch high on a chasm wall)
+        else if (e.hang || spr.hang) z = (s ? s.cl : e.z0 + 1.25) - spr.h / 64 * spr.scale * (e.scale || 1) - (e.spec.drop || 0);
         else if (e.free) z = e.z;
         else z = (s ? s.fl : e.z0) + e.zOff + (e.bob ? 0.04 + 0.035 * Math.sin(this.time * 3 + e.id) : 0);
-        if (!e.free) e.z = e.hang ? (s ? s.fl : e.z0) : z;
+        if (!e.free && zAbs === undefined && e.zf === undefined) e.z = e.hang ? (s ? s.fl : e.z0) : z;
         const frame = e.frame !== undefined ? e.frame : spr.frames.length > 1 ? Math.floor((this.time + e.id * 0.37) * spr.fps) : 0;
         list.push({ x: e.x, y: e.y, z, spr, frame, light: Math.min(31, (s ? s.light : 16) + (e.spec.light || 0)), fog: s ? s.fog : false, flip: !!e.flip, bright: !!e.bright, scale: e.scale, ent: e });
       }

@@ -26,7 +26,11 @@
  *   runs up across it, and a walk-off never comes to rest within their reach.
  *   Floors that hurt (fire, acid ...) are never stood on; lava and abyss kill.
  *   Loose floors: you cannot stand still on one, so no careful hang-drop or
- *   standing jump from it (a walking jump is fine).
+ *   standing jump from it (a walking jump is fine). Dormant ones ({ armed: false })
+ *   are plain floor. Knock a loose ceiling flag down with a straight-up jump when
+ *   its underside is within reach (floor + 1.4): the hole opens for climbing.
+ *   Moving floors ('bob', 'lift' anims) are tried at their low, middle and high points.
+ *   Spans marked { forbid: true } must never be reached (an ERROR if they are).
  *
  * Items whose position is reached are collected; the search repeats until
  * nothing new opens. Reports unreachable items, then robustness warnings: a
@@ -63,7 +67,8 @@ function verifyLevel(lv, { quiet = false } = {}) {
   const res = solve(g);
   if (!quiet) for (const line of res.log) console.log('  ' + line);
   if (!res.exit) { failed = true; console.error(`  EXIT NOT REACHABLE. Reached ${res.reach.size} spans; items: ${[...res.inv].join(', ') || 'none'}; open: ${[...res.open].join(', ') || 'none'}`); }
-  else console.log(`  exit reachable (${res.reach.size} spans reached, about ${res.exitTime.toFixed(0)} s of optimal play in the final round)`);
+  else console.log(`  exit reachable (${res.reach.size} spans reached; the route takes about ${res.routeTime.toFixed(0)} s of optimal play, not counting waits for hazards)`);
+  for (const s of res.reach.keys()) if (s.forbid) { failed = true; console.error(`  ERROR: reached ${tag(s)}, marked forbid: true (a shortcut the author ruled out)`); }
   const missing = g.ents.filter(e => e.type === 'item' && !res.items.has(e.id));
   for (const e of missing) {
     const kind = g.itemDef(e.spec.item).kind;
@@ -141,8 +146,11 @@ function solve(g, from = null, opts = {}) {
   const inv = new Set(), open = new Set(), items = new Set(), used = new Set(), log = [];
   const lifted = new Map(); // span -> fl after a lift
   const fl = s => (lifted.has(s) ? lifted.get(s) : s.baseFl);
-  const heights = s => (s.anim && s.anim.type === 'bob') ? [s.baseFl, s.baseFl + (s.anim.amp ?? 1) / 2, s.baseFl + (s.anim.amp ?? 1)] : [fl(s)];
-  const top = s => (s.door ? s.doorTop : s.baseCl);
+  const moving = s => s.anim && (s.anim.type === 'bob' || s.anim.type === 'lift');
+  const heights = s => { if (!moving(s)) return [fl(s)]; const a = s.anim.amp ?? (s.anim.type === 'lift' ? 1.5 : 1); return [s.baseFl, s.baseFl + a / 2, s.baseFl + a]; };
+  const knocked = new Map(); // span -> its ceiling after the loose flag above it was knocked down
+  const gone = new Set();    // loose flags knocked down
+  const top = s => (knocked.has(s) ? knocked.get(s) : s.door ? s.doorTop : s.baseCl);
   const hazardDef = s => (s.hazard && g.hazardDefs[s.hazard]) || null;
   const deadly = s => s.hazard === 'lava' || s.hazard === 'abyss' || fl(s) < -40 || !!(hazardDef(s) && hazardDef(s).deadly);
   const hurts = s => !!hazardDef(s) && !(s.anim && s.anim.type === 'cycle');   // fire, acid ... (a timed vent is left to the author)
@@ -153,7 +161,8 @@ function solve(g, from = null, opts = {}) {
     if (d.key) return inv.has(d.key);
     return true;
   };
-  const standable = s => s && !deadly(s) && !hurts(s) && doorOk(s);
+  const standable = s => s && !gone.has(s) && !deadly(s) && !hurts(s) && doorOk(s);
+  const rideable = s => s.loose && s.loose.state === 'idle';
   const cellAt = (x, y) => world.cellAt(x, y);
   // spans with spikes: careful steps only (engine/entities.js 'spikes')
   const spiky = new Set();
@@ -284,7 +293,7 @@ function solve(g, from = null, opts = {}) {
                 const L = walkOff(c, z, dx, dy);
                 if (L && z - fl(L.span) <= cfg.fallSafe + 1e-6) relax(edge('drop', s, L.span, dir, z, fl(L.span), 1 / RUN + 0.5), d0);
               }
-              if (drop <= cfg.fallSafe + cfg.hangDepth + 1e-6 && !s.loose) relax(edge('hangdrop', s, t, dir, z, hu, 2.5), d0); // careful to the edge, hang, let go
+              if (drop <= cfg.fallSafe + cfg.hangDepth + 1e-6 && !rideable(s)) relax(edge('hangdrop', s, t, dir, z, hu, 2.5), d0); // careful to the edge, hang, let go
             }
           }
           // climb onto a ledge in the next cell (needs room above you to pull up)
@@ -328,7 +337,7 @@ function solve(g, from = null, opts = {}) {
           }
         }
         // loose floor: stop on it and ride it down
-        if (s.loose && s.loose.state !== 'fallen') {
+        if (rideable(s)) {
           const i = c.spans.indexOf(s);
           const below = i > 0 ? c.spans[i - 1] : null;
           if (below && z - fl(below) <= cfg.fallSafe + 1e-6) relax(edge('ride-loose', s, below, null, z, fl(below), 1.2), d0);
@@ -347,7 +356,7 @@ function solve(g, from = null, opts = {}) {
     const st = state();
     ({ dist: reach, pred } = search(start, rec));
     const goals = [];
-    rounds.push({ round, state: st, reach, pred, edges: rec.edges, goals });
+    rounds.push({ round, state: st, reach, pred, edges: rec.edges, goals, knocked: [...knocked], gone: [...gone] });
     let progress = false;
     const got = [];
     // items
@@ -398,6 +407,16 @@ function solve(g, from = null, opts = {}) {
       const c = s.cell, i = c.spans.indexOf(s), above = c.spans[i + 1];
       if (above && above.loose && reach.has(above)) { open.add(P.opens); got.push(`[rubble jams plate → ${P.opens} open]`); goals.push({ span: above, what: `rubble → ${P.opens}` }); progress = true; }
     }
+    // loose ceiling flags within reach of a straight-up jump: knock them down, climb through
+    for (const s of reach.keys()) {
+      if (knocked.has(s)) continue;
+      const c = s.cell, i = c.spans.indexOf(s), u = c.spans[i + 1];
+      // only a flag you cannot already reach from above (knocking it never takes away a floor you use)
+      if (!u || !rideable(u) || gone.has(u) || reach.has(u) || moving(s)) continue;
+      if (top(s) > fl(s) + cfg.upReach + 1e-6) continue;
+      knocked.set(s, u.baseCl); gone.add(u);
+      got.push(`[knock down the flag above (${c.x},${c.y})]`); goals.push({ span: s, what: `knock (${c.x},${c.y})` }); progress = true;
+    }
     // levers (on rock faces next to reached spans)
     for (const c of world.cells) for (let k = 0; k < c.band.length; k++) {
       const b = c.band[k];
@@ -426,7 +445,30 @@ function solve(g, from = null, opts = {}) {
   }
   const exits = [...reach.keys()].filter(s => s.exit);
   const exitSpan = exits.length ? exits.reduce((a, b) => (reach.get(b) < reach.get(a) ? b : a)) : null;
-  return { exit: exits.length > 0, exitTime: exitSpan ? reach.get(exitSpan) : 0, exitSpan, start, reach, inv, open, items, log, pred, rounds };
+  // the whole route: start -> each goal in the order it was found -> exit, each leg in its round's world
+  let routeTime = 0;
+  if (exitSpan) {
+    let cur = start;
+    const legTime = (rnd, to) => {
+      // replay that round's state, search from where we are, restore
+      const save = { inv: [...inv], open: [...open], lifted: new Map(lifted), knocked: new Map(knocked), gone: new Set(gone) };
+      inv.clear(); rnd.state.inv.forEach(x => inv.add(x)); open.clear(); rnd.state.open.forEach(x => open.add(x));
+      lifted.clear(); for (const q of rnd.state.lifted) { const sp = cellAt(q.x, q.y).spans[q.i]; if (sp) lifted.set(sp, q.fl); }
+      knocked.clear(); gone.clear(); for (const [a, b] of rnd.knocked || []) knocked.set(a, b); for (const a of rnd.gone || []) gone.add(a);
+      const d = search(cur, null).dist.get(to);
+      inv.clear(); save.inv.forEach(x => inv.add(x)); open.clear(); save.open.forEach(x => open.add(x));
+      lifted.clear(); for (const [a, b] of save.lifted) lifted.set(a, b);
+      knocked.clear(); for (const [a, b] of save.knocked) knocked.set(a, b); gone.clear(); for (const a of save.gone) gone.add(a);
+      return d;
+    };
+    for (const rnd of rounds) {
+      const gs = rnd.goals.slice().sort((a, b) => rnd.reach.get(a.span) - rnd.reach.get(b.span));
+      for (const gl of gs) { const d = legTime(rnd, gl.span); routeTime += d === undefined ? rnd.reach.get(gl.span) : d; cur = gl.span; }
+    }
+    const d = legTime(rounds[rounds.length - 1], exitSpan);
+    routeTime += d === undefined ? reach.get(exitSpan) : d;
+  }
+  return { exit: exits.length > 0, exitTime: exitSpan ? reach.get(exitSpan) : 0, routeTime, exitSpan, start, reach, inv, open, items, log, pred, rounds };
 }
 
 /** The edges of the shortest path from the round's start to `span` (in order). */

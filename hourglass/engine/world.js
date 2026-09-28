@@ -23,8 +23,15 @@
  *
  * Span features: door (doors & portcullis gates), loose (falling floor),
  * plate (pressure plate), exit, hazard, anim, tag, use, enter, label, music,
- * checkpoint, secret, sky. Legend entries with base:'auto' inherit the floor
- * around them (for entities). Characters are free-form except ' ' (nothing).
+ * checkpoint, secret, sky, forbid (the solver must never reach it). Legend
+ * entries with base:'auto' inherit the plain floor around them (for entities).
+ * Characters are free-form except ' ' (nothing).
+ *
+ * level.ents places entities by coordinate instead of by legend character:
+ *   ents: [{ x: 12, y: 5, z: 1.5, tpl: 'darts', dir: 'W' }, ...]
+ * (x, y the cell, z the height of the floor it stands on; dx/dy nudge it).
+ * Rock faces are pegged to the storey (layer) they belong to, so a lever or a
+ * sconce on a rock face looks the same on every storey.
  */
 (function (R) {
   'use strict';
@@ -80,12 +87,14 @@
         secret: !!d.secret, remote: !!d.remote, msg: d.msg || null, openMsg: d.openMsg || null,
         script: d.script || null, sound: d.sound || 'door', group: d.group || t.tag || null,
         state: d.open ? 'open' : 'closed', closeAfter: d.closeAfter || 0, unlocked: false, see: !!d.see,
+        axis: d.axis || null,
       };
       s.cl = d.open ? s.doorTop : s.fl;
       s.dyn = true;
     }
-    if (t.loose) s.loose = { delay: t.loose.delay ?? null, state: 'idle', t: 0 };
+    if (t.loose) s.loose = { delay: t.loose.delay ?? null, state: t.loose.armed === false ? 'dormant' : 'idle', t: 0 };
     s.abyss = !!t.abyss;
+    s.forbid = !!t.forbid;
     if (t.plate) s.plate = Object.assign({ pressed: false }, t.plate);
     if (t.anim) {
       if (!R.cellAnims.has(t.anim.type)) throw new Error(`Unknown cell anim "${t.anim.type}"`);
@@ -146,10 +155,10 @@
         cands.push(t2);
       }
       if (!cands.length) throw new Error(`No walkable neighbour to inherit from ${where}`);
-      const minFl = Math.min(...cands.map(t => t.fl));
-      const low = cands.filter(t => t.fl <= minFl + 0.6);
-      const plain = low.find(t => !(t.hazard || t.anim || t.enter || t.secret || t.tag || t.ent || t.start !== undefined || t.use || t.loose || t.plate || t.exit));
-      return plain || low[0];
+      // the plain floor nearest the layer's own height (not a trough or a step beside it)
+      const special = t => !!(t.hazard || t.anim || t.enter || t.secret || t.tag || t.ent || t.start !== undefined || t.use || t.loose || t.plate || t.exit || t.checkpoint);
+      cands.sort((a, b) => (special(a) - special(b)) || (Math.abs(a.fl) - Math.abs(b.fl)));
+      return cands[0];
     };
 
     for (let y = 0; y < Hh; y++) for (let x = 0; x < W; x++) {
@@ -162,7 +171,7 @@
         if (isAuto(L.legend, ch)) {
           const own = Object.assign({}, L.legend[ch]); delete own.base;
           const b = Object.assign({}, autoBase(L, x, y, where));
-          for (const k of ['ent', 'start', 'door', 'loose', 'plate', 'exit', 'use', 'lever']) delete b[k];
+          for (const k of ['ent', 'start', 'door', 'loose', 'plate', 'exit', 'use', 'lever', 'anim', 'hazard', 'tag', 'enter', 'secret', 'checkpoint', 'forbid']) delete b[k];
           t = U.merge(L.defaults, b, own);
         } else t = U.merge(L.defaults, resolveTemplate(L.legend, ch, where));
         const info = {
@@ -217,13 +226,27 @@
       cell.spans = spans;
       world.cells[y * W + x] = cell;
     }
+    world.cellAt = (x, y) => (x < 0 || y < 0 || x >= W || y >= Hh ? null : world.cells[y * W + x]);
+    // entities placed by coordinate
+    for (const e of (lv.ents || [])) {
+      const where = `level "${lv.id}" ents entry at (${e.x},${e.y}) z=${e.z}`;
+      const c = world.cellAt(Math.floor(e.x), Math.floor(e.y));
+      if (!c) throw new Error(`${where}: outside the grid`);
+      const s = R.spanAt(c, (e.z ?? 0) + 0.02) || R.spanBelow(c, (e.z ?? 0) + 0.02);
+      if (!s) throw new Error(`${where}: no floor there`);
+      const spec = Object.assign({}, e); delete spec.z;
+      world.spawns.push(Object.assign(spec, { x: Math.floor(e.x) + 0.5 + (e.dx || 0), y: Math.floor(e.y) + 0.5 + (e.dy || 0), z0: s.fl, layer: s.band, cellX: c.x, cellY: c.y }));
+    }
+    // rock never rises above the highest roof: above it, open sky spans see the sky
+    let roof = -1e9;
+    for (const c of world.cells) for (const s of c.spans) if (!s.sky) roof = Math.max(roof, s.cl, s.door ? s.doorTop : 0);
+    world.rockTop = lv.rockTop ?? (roof > -1e9 ? roof : SKY_TOP);
     if (!world.start) throw new Error(`Level "${lv.id}" has no start: give one legend entry a \`start: "N"|"E"|"S"|"W"\` field`);
     const sc = world.cells[Math.floor(world.start.y) * W + Math.floor(world.start.x)];
     const ss = R.spanAt(sc, world.start.z + 0.01);
     if (!ss) throw new Error(`Level "${lv.id}": the start position is inside rock`);
     world.start.z = ss.fl;
     world.signature = U.hash(layers.map(l => l.chars.join('')).join('|') + `|${world.spawns.length}`).toString(36);
-    world.cellAt = (x, y) => (x < 0 || y < 0 || x >= W || y >= Hh ? null : world.cells[y * W + x]);
     world.band = z => { let k = 0; while (k + 1 < bandZ.length && z >= bandZ[k + 1] - 1e-6) k++; return k; };
     return world;
   };
@@ -259,7 +282,8 @@
       const info = cell.band[k];
       const s = info && info.span;
       if (!info || info.solid || !s) {
-        out.push(a, top, info ? info.wall : cell.wall, 0, 0);
+        // rock: pegged to the bottom of its storey, so features on it sit the same on every storey
+        out.push(a, top, info ? info.wall : cell.wall, 2, bz[k]);
       } else if (top <= s.fl + 1e-4) {
         out.push(a, top, info.low, 1, s.fl);
       } else if (a >= s.cl - 1e-4) {
@@ -269,19 +293,21 @@
           if (m < top) out.push(m, top, info.up, 2, s.doorTop);
         } else out.push(a, top, info.up, 2, s.cl);
       } else {
-        out.push(a, top, info.wall, 0, 0);
+        out.push(a, top, info.wall, 2, bz[k]);
       }
       a = top; k++;
-      if (k >= bz.length) { if (a < hi) out.push(a, hi, info ? info.up : cell.wall, 0, 0); break; }
+      if (k >= bz.length) { if (a < hi) out.push(a, hi, info ? info.up : cell.wall, 2, bz[bz.length - 1]); break; }
     }
     return out;
   };
 
   // ------------------------------------------------ stock span animations
-  /** Crusher: ceiling slams down and slowly rises, on a fixed timetable. */
+  /** Crusher: ceiling slams down and slowly rises, on a fixed timetable; a creak warns 0.3 s before. */
   R.cellAnims.register('crusher', {
     update(s, t) {
       const a = s.anim, period = a.period || 4, p = U.mod(t / period + (a.phase || 0), 1);
+      const warn = p >= 1 - 0.3 / period;
+      a.justWarned = warn && !a.warned; a.warned = warn;
       const lo = s.baseFl + (a.min ?? 0.08), hi = s.baseCl;
       let k;
       if (p < 0.12) k = 1 - p / 0.12;
@@ -313,6 +339,22 @@
       const a = s.anim, period = a.period || 4;
       const k = 0.5 - 0.5 * Math.cos(2 * Math.PI * U.mod(t / period + (a.phase || 0), 1));
       s.fl = s.baseFl + (a.amp ?? 1) * k;
+    },
+  });
+  /**
+   * Lift: the floor rides between baseFl and baseFl + amp, waiting `dwell`
+   * seconds at each end (bottom first); the travel takes the rest of the period.
+   */
+  R.cellAnims.register('lift', {
+    update(s, t) {
+      const a = s.anim, period = a.period || 9.6, dwell = Math.min(a.dwell ?? 2.4, period / 2 - 0.1);
+      const q = U.mod(t + (a.phase || 0) * period, period), move = period / 2 - dwell;
+      let k;
+      if (q < dwell) k = 0;
+      else if (q < dwell + move) k = U.smooth((q - dwell) / move);
+      else if (q < 2 * dwell + move) k = 1;
+      else k = 1 - U.smooth((q - 2 * dwell - move) / move);
+      s.fl = s.baseFl + (a.amp ?? 1.5) * k;
     },
   });
   /** Flicker: light level flickers (torches). Purely cosmetic. */
