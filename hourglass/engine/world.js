@@ -51,11 +51,16 @@
   };
   R.STOCK_LEGEND = { ' ': { solid: true } };
 
-  function resolveTemplate(legend, ch, where, depth = 0) {
-    let t = legend[ch];
+  /** A legend entry, following string aliases ('a': 'b'). */
+  function lookup(legend, ch, where, depth = 0) {
+    if (depth > 16) throw new Error(`Legend cycle at "${ch}" ${where}`);
+    const t = legend[ch];
     if (t === undefined) throw new Error(`Unknown map character "${ch}" ${where}`);
-    if (typeof t === 'string') return resolveTemplate(legend, t, where, depth + 1);
-    if (depth > 16) throw new Error(`Legend cycle at "${ch}"`);
+    return typeof t === 'string' ? lookup(legend, t, where, depth + 1) : t;
+  }
+  function resolveTemplate(legend, ch, where, depth = 0) {
+    const t = lookup(legend, ch, where, depth);
+    if (t.base === 'auto' && depth > 0) throw new Error(`"${ch}" is an entity character (base: 'auto') and cannot be a base ${where}: give the new character its own floor, e.g. { base: '.', ent: ... }`);
     if (t.base !== undefined && t.base !== 'auto') {
       const b = resolveTemplate(legend, t.base, where, depth + 1);
       const own = Object.assign({}, t); delete own.base;
@@ -137,12 +142,12 @@
     const bandZ = layers.map(l => l.z);
     const world = {
       id: lv.id, W, H: Hh, cells: new Array(W * Hh), bandZ, layers, start: null,
-      tags: new Map(), spawns: [], level: lv,
+      tags: new Map(), rockTags: new Map(), spawns: [], level: lv,
       sky: texId(lv.sky || camp.sky || 'SKY_NIGHT'),
     };
     const addTag = (tag, s) => { if (!world.tags.has(tag)) world.tags.set(tag, []); world.tags.get(tag).push(s); };
 
-    const isAuto = (legend, c) => { const t = legend[c]; return t && typeof t === 'object' && t.base === 'auto'; };
+    const isAuto = (legend, c) => legend[c] !== undefined && lookup(legend, c, `(legend "${c}")`).base === 'auto';
     const autoBase = (L, x, y, where) => {
       const cands = [];
       for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0], [-1, -1], [1, -1], [-1, 1], [1, 1]]) {
@@ -169,7 +174,7 @@
         const where = `at (${x},${y}) layer z=${L.z} of level "${lv.id}"`;
         let t;
         if (isAuto(L.legend, ch)) {
-          const own = Object.assign({}, L.legend[ch]); delete own.base;
+          const own = Object.assign({}, lookup(L.legend, ch, where)); delete own.base;
           const b = Object.assign({}, autoBase(L, x, y, where));
           for (const k of ['ent', 'start', 'door', 'loose', 'plate', 'exit', 'use', 'lever', 'anim', 'hazard', 'tag', 'enter', 'secret', 'checkpoint', 'forbid']) delete b[k];
           t = U.merge(L.defaults, b, own);
@@ -187,7 +192,8 @@
           if (s.tag) addTag(s.tag, s);
         } else if (t.tag) {
           // tagged rock (e.g. a lever wall) — scripts can retexture it
-          addTag(t.tag, info);
+          if (!world.rockTags.has(t.tag)) world.rockTags.set(t.tag, []);
+          world.rockTags.get(t.tag).push(info);
         }
         if (t.start !== undefined) world.start = { x: x + 0.5, y: y + 0.5, z: L.z + (t.solid ? 0 : t.fl), ang: U.dirAngle(t.start) };
         if (t.ent) {
@@ -205,6 +211,7 @@
         if (s.pit) {
           const below = spans[spans.length - 1];
           if (below) {
+            if (below.door) throw new Error(`Level "${lv.id}" (${x},${y}) layer z=${lv.layers[s.band].z}: a pit over a door or gate (a door's opening is its ceiling). Put rock above the door, or move the hole to a neighbouring cell.`);
             below.cl = Math.max(below.cl, s.cl); below.baseCl = below.cl;
             below.ctex = s.ctex; below.sky = below.sky || s.sky;
             if (s.sky) below.cl = below.baseCl = SKY_TOP;
@@ -218,6 +225,7 @@
         }
         if (s.loose && !spans.length) throw new Error(`Level "${lv.id}" (${x},${y}) layer z=${lv.layers[s.band].z}: a loose floor over solid rock (it would fall into nothing). Put open space or an abyss below it.`);
         const below = spans[spans.length - 1];
+        if (s.loose && below && below.door) throw new Error(`Level "${lv.id}" (${x},${y}) layer z=${lv.layers[s.band].z}: a loose floor over a door or gate (it would fall into the door's opening). Put rock between them.`);
         if (below && below.cl > s.fl + 1e-6) {
           throw new Error(`Level "${lv.id}" (${x},${y}): the span from layer z=${lv.layers[s.band].z} (floor ${s.fl}) cuts into the span below (ceiling ${below.cl}). Use ' ' or a pit in the upper layer, or lower the ceiling below.`);
         }
@@ -241,7 +249,10 @@
     }
     // rock never rises above the highest roof: above it, open sky spans see the sky
     let roof = -1e9;
-    for (const c of world.cells) for (const s of c.spans) if (!s.sky) roof = Math.max(roof, s.cl, s.door ? s.doorTop : 0);
+    for (const c of world.cells) for (const s of c.spans) {
+      if (!s.sky) roof = Math.max(roof, s.cl, s.door ? s.doorTop : 0);
+      else if (s.fl > -30) roof = Math.max(roof, s.baseFl + (s.anim && s.anim.amp > 0 ? s.anim.amp : 0));   // a terrace wall's top
+    }
     world.rockTop = lv.rockTop ?? (roof > -1e9 ? roof : SKY_TOP);
     if (!world.start) throw new Error(`Level "${lv.id}" has no start: give one legend entry a \`start: "N"|"E"|"S"|"W"\` field`);
     const sc = world.cells[Math.floor(world.start.y) * W + Math.floor(world.start.x)];
@@ -284,8 +295,17 @@
       const info = cell.band[k];
       const s = info && info.span;
       if (!info || info.solid || !s) {
-        // rock: pegged to the bottom of its storey, so features on it sit the same on every storey
-        out.push(a, top, info ? info.wall : cell.wall, 2, bz[k]);
+        // a lower storey's floor raised into this band (fl above its storey): the face under it is that floor's low face
+        let rs = null, ri = null;
+        for (let j = k - 1; j >= 0 && !rs; j--) { const ij = cell.band[j], sj = ij && ij.span; if (sj && sj.band === j && sj.fl > a + 1e-4) { rs = sj; ri = ij; } }
+        if (rs && rs.fl > a + 1e-4) {
+          const m = Math.min(top, rs.fl);
+          out.push(a, m, ri.low, 1, rs.fl);
+          if (m < top - 1e-6) out.push(m, top, info ? info.wall : cell.wall, 2, bz[k]);
+        } else {
+          // rock: pegged to the bottom of its storey, so features on it sit the same on every storey
+          out.push(a, top, info ? info.wall : cell.wall, 2, bz[k]);
+        }
       } else if (top <= s.fl + 1e-4) {
         out.push(a, top, info.low, 1, s.fl);
       } else if (a >= s.cl - 1e-4) {
@@ -293,7 +313,7 @@
           const m = Math.min(top, s.doorTop);
           out.push(a, m, s.door.tex, 2, s.cl);
           if (m < top) out.push(m, top, info.up, 2, s.doorTop);
-        } else out.push(a, top, info.up, 2, s.cl);
+        } else out.push(a, top, info.up, 2, s.door ? s.doorTop : s.cl);
       } else {
         out.push(a, top, info.wall, 2, bz[k]);
       }

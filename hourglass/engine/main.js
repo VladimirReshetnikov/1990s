@@ -35,7 +35,10 @@
       globalThis.addEventListener('keyup', e => this.onKey(e, false));
       globalThis.addEventListener('blur', () => this.keys.clear());
       // a stray Ctrl+W or F5 mid-jump should not end the run without asking
-      globalThis.addEventListener('beforeunload', e => { if (this.state === 'play' || this.state === 'menu' || this.state === 'dead') { e.preventDefault(); e.returnValue = ''; } });
+      globalThis.addEventListener('beforeunload', e => {
+        const s = this.state, inRun = s === 'play' || s === 'menu' || s === 'dead' || s === 'complete' || s === 'card' || (s === 'dialog' && !(this.dialog && this.dialog.back === 'title'));
+        if (inRun) { e.preventDefault(); e.returnValue = ''; }
+      });
       this.last = performance.now();
       requestAnimationFrame(t => this.frame(t));
     }
@@ -61,13 +64,16 @@
       return new R.Game(this.camp, {
         sound: (n, v, pan) => this.audio.play(n, v, pan),
         msg: (t, s) => this.ui.addMessage(t, s),
-        dialog: (title, text, then) => { this.dialog = { title, text, then }; this.state = 'dialog'; this.audio.play('page'); },
+        dialog: (title, text, then) => {
+          const back = this.state === 'dialog' ? this.dialog && this.dialog.back : this.state;
+          this.dialog = { title, text, then, back: back && back !== 'play' ? back : undefined }; this.state = 'dialog'; this.audio.play('page');
+        },
         flash: (rgb, a) => { this.flashRGB = rgb; this.flashA = Math.max(this.flashA, a); },
         shake: t => { this.shakeT = Math.max(this.shakeT, t); },
         face: st => this.ui.setFace(st),
         area: label => this.ui.banner(label),
-        music: name => { if (this.state === 'play') this.audio.playSong(name); },
-        died: () => { this.state = 'dead'; this.deadT = 0; },
+        music: () => { if (this.state === 'play') this.audio.playSong(this.currentMusic()); },
+        died: () => { if (this.state === 'play' || this.state === 'dialog') { this.state = 'dead'; this.deadT = 0; this.dialog = null; } },
         levelDone: () => { this.state = 'complete'; this.completeT = 0; this.audio.play('fanfare'); },
         won: info => { this.wonInfo = info; this.state = 'won'; this.wonT = 0; this.audio.playSong(this.camp.endingMusic || null); this.audio.play('fanfare'); this.clearSave(); },
       });
@@ -107,11 +113,12 @@
     // ------------------------------------------------------------ sizing
     resize() {
       const iw = globalThis.innerWidth || 1280, ih = globalThis.innerHeight || 720;
-      const aspect = U.clamp(iw / ih, 1.2, 2.4);
       const H = this.opts.detail;
-      const W = Math.round(H * aspect / 2) * 2;
-      this.W = W; this.H = H;
       this.uiScale = Math.max(1, Math.floor(H / 200));
+      // the status bar is a fixed 320 x uiScale layout: letterbox rather than go narrower
+      const W = Math.max(320 * this.uiScale, Math.round(H * U.clamp(iw / ih, 1.2, 2.4) / 2) * 2);
+      const aspect = W / H;
+      this.W = W; this.H = H;
       this.viewH = H - 32 * this.uiScale;
       this.canvas.width = W; this.canvas.height = H;
       this.img = this.ctx2d.createImageData(W, H);
@@ -178,6 +185,7 @@
       if (!s) return false;
       this.game = this.makeGame();
       try { this.game.deserialize(s); } catch (e) { console.warn(e); this.game = this.makeGame(); this.ui.addMessage('THAT SAVE CANNOT BE LOADED', 4); return false; }
+      this.chimed = 99;
       this.showCard();
       return true;
     }
@@ -239,7 +247,7 @@
           { label: 'Restart Level', action: () => this.restartLevel() },
           { label: 'Options', action: () => this.openMenu('options') },
           { label: 'Controls', action: () => this.openMenu('controls') },
-          { label: 'Quit to Title', action: () => { this.startMelt(); this.state = 'title'; this.menuStack = []; this.menuKind = 'title'; this.menuCursor = 0; this.audio.playSong(this.camp.titleMusic || null); } },
+          { label: 'Quit to Title', action: () => { this.startMelt(); this.game = this.makeGame(); this.showMap = false; this.pendingInput = null; this.acc = 0; this.state = 'title'; this.menuStack = []; this.menuKind = 'title'; this.menuCursor = 0; this.audio.playSong(this.camp.titleMusic || null); } },
         ];
       }
       if (kind === 'options') {
@@ -284,7 +292,8 @@
       requestAnimationFrame(tt => this.frame(tt));
       let dt = (t - this.last) / 1000; this.last = t;
       if (!(dt > 0)) dt = 0; if (dt > 0.1) dt = 0.1;
-      try { this.step(dt); } catch (e) { console.error(e); this.fatal = e; }
+      if (!this.fatal) { try { this.step(dt); } catch (e) { console.error(e); this.fatal = e; this.meltSrc = null; } }
+      if (this.fatal) { try { this.drawScene(); } catch (e) { /* keep the last frame */ } }
       this.pressed = [];
       this.ctx2d.putImageData(this.img, 0, 0);
     }
@@ -314,7 +323,9 @@
         if (first) this.pendingInput = inp; // edge presses carry over to the next step
         if (g.persist.timed) {
           const left = TIME_LIMIT - g.persist.clock;
-          for (const m of [15, 5, 1]) if (left <= m * 60 && (this.chimed || 99) > m) { this.chimed = m; this.audio.play('chime'); this.ui.addMessage(m === 1 ? 'ONE MINUTE LEFT! THE LAST GRAINS ARE FALLING.' : `${m} MINUTES LEFT IN THE HOURGLASS.`, 5); }
+          let hit = 0;
+          for (const m of [15, 5, 1]) if (left <= m * 60 && (this.chimed || 99) > m) hit = m;   // only the latest milestone passed
+          if (hit) { this.chimed = hit; this.audio.play('chime'); this.ui.addMessage(hit === 1 ? 'ONE MINUTE LEFT! THE LAST GRAINS ARE FALLING.' : `${hit} MINUTES LEFT IN THE HOURGLASS.`, 5); }
           if (left <= 0 && this.state === 'play') { this.state = 'timeup'; this.timeupT = 0; this.audio.play('death'); this.clearSave(); }
         }
       } else if (this.state === 'menu') {
@@ -335,8 +346,8 @@
         this.completeT += dt;
         g.update(dt, null);
         if (this.completeT > 1.2) {
-          if (g.nextLevel()) this.showCard();
-          else { this.state = 'won'; this.wonT = 0; this.wonInfo = this.camp.ending || {}; this.clearSave(); this.audio.playSong(this.camp.endingMusic || null); }
+          if (g.nextLevel()) { this.saveGame(); this.showCard(); }
+          else g.win(this.camp.ending || {});
         }
       } else if (this.state === 'card') {
         this.cardT += dt;
@@ -384,7 +395,12 @@
       }
       const bob = this.opts.bob ? Math.sin(p.bobPhase * 2) * 0.035 * p.bobAmp : 0;
       let z = p.viewZ + bob - p.dip;
-      if (!p.alive) z = p.z + 0.12 + Math.max(0, cfg.eyeHeight - 0.12 - (this.deadT || 0) * 0.8);
+      if (!p.alive) {
+        z = p.z + 0.12 + Math.max(0, cfg.eyeHeight - 0.12 - (this.deadT || 0) * 0.8);
+        const c = g.world.cellAt(Math.floor(p.x), Math.floor(p.y));
+        const sp = c && (R.spanAt(c, p.z + 0.02) || R.spanBelow(c, p.z + 0.02));
+        if (sp && !sp.sky) z = Math.max(sp.fl + 0.01, Math.min(z, (sp.door && sp.door.see ? sp.doorTop : sp.cl) - 0.02));
+      }
       const sh = this.shakeT > 0 ? (Math.random() - 0.5) * this.shakeT * 6 : 0;
       let pitch = p.pitch + (this.opts.peek ? p.autoPitch : 0);
       if (p.act && p.act.kind === 'climb') pitch += 14 * Math.sin(Math.min(1, p.act.t / p.act.dur) * Math.PI);
@@ -512,9 +528,10 @@
       ui.textC(intro.title.toUpperCase(), W / 2, 12 * s, R.UIGRAD.gold, s * 2);
       const shown = intro.text.slice(0, Math.floor(this.introT * 40));
       const maxC = Math.min(58, Math.floor((W / s - 24) / 6));
-      const lines = U.wrap(shown.toUpperCase(), maxC);
+      const lines = U.wrap(shown.toUpperCase(), maxC), all = U.wrap(intro.text.toUpperCase(), maxC);
+      const pitch = Math.max(8, Math.min(10, Math.floor((H / s - 14 - 40 - 2) / Math.max(1, all.length))));
       const x = Math.round((W - maxC * 6 * s) / 2);
-      lines.forEach((ln, i) => ui.text(ln, x, (40 + i * 10) * s, R.UICOL.text, s));
+      lines.forEach((ln, i) => ui.text(ln, x, (40 + i * pitch) * s, R.UICOL.text, s));
       if (Math.floor(this.introT * 2) % 2) ui.textC('PRESS ENTER', W / 2, H - 14 * s, R.UICOL.dim, s);
     }
     drawWon() {

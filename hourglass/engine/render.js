@@ -50,8 +50,9 @@
         if (!n) continue;
         let open = false, level = false;
         for (const q of n.spans) {
-          if (q.fl < f + 0.5 && Math.max(q.cl, q.door ? q.doorTop : 0) > f + 0.3) open = true;
-          if (Math.abs(q.fl - f) <= 0.35 && q.cl > f + 0.3) level = true;
+          const top = q.door ? Math.max(q.cl, q.doorTop) : q.cl;
+          if (q.fl < f + 0.5 && top > f + 0.3) open = true;
+          if (Math.abs(q.fl - f) <= 0.35 && top > f + 0.3) level = true;
         }
         if (open && !level) bits |= bit;
       }
@@ -385,7 +386,7 @@
             const texel = fr[co + v];
             if (texel === 255) continue;
             buf[i] = set[base + texel];
-            s.seen = true;
+            if (s.ent) s.ent.seen = true;
           }
         }
       }

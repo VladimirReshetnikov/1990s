@@ -106,8 +106,8 @@
       }
       this.hasBob = this.spansWith.anim.some(s => s.anim.type === 'bob' || s.anim.type === 'lift');
       this.spawnEntities();
-      this.cp = { x: s.x, y: s.y, z: s.z, ang: s.ang, nEvents: 0, inv: Object.assign({}, this.inv), persist: JSON.parse(JSON.stringify(this.persist)), maxLife: this.player.maxLife };
       if (lv.onStart && !opts.respawn) this.runScript(lv.onStart, {});
+      this.cp = { x: s.x, y: s.y, z: s.z, ang: s.ang, nEvents: this.events.length, inv: Object.assign({}, this.inv), persist: JSON.parse(JSON.stringify(this.persist)), maxLife: this.player.maxLife, waves: [] };
     }
     nextLevel() {
       this.persist.maxLife = this.player.maxLife; this.persist.life = this.player.life;
@@ -154,6 +154,25 @@
       return it;
     }
     isDrink(id) { return DRINKS.includes(this.itemDef(id).kind); }
+    /** The floor an entity stands on (things that never move: the cell they were placed in). */
+    entFloor(e) {
+      const still = e.type === 'deco' || e.type === 'item' || e.type === 'note' || e.type === 'checkpoint';
+      const c = still && e.spec.cellX !== undefined ? this.world.cellAt(e.spec.cellX, e.spec.cellY)
+        : this.world.cellAt(Math.floor(e.hang ? e.x0 : e.x), Math.floor(e.hang ? e.y0 : e.y));
+      const s = c && (R.spanAt(c, e.z0 + 0.02) || R.spanBelow(c, e.z0 + 0.02));
+      return s ? s.fl : e.z0;
+    }
+    /** A secret area: this span and every secret span joined to it count once. */
+    markSecret(s) {
+      const stack = [s]; s.secretFound = true;
+      while (stack.length) {
+        const a = stack.pop();
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const c = this.world.cellAt(a.cell.x + dx, a.cell.y + dy);
+          for (const b of (c ? c.spans : [])) if (b.secret && !b.secretFound) { b.secretFound = true; stack.push(b); }
+        }
+      }
+    }
     /** How many gems the whole campaign hides (for the final tally). */
     totalGems() {
       if (this._gemTotal !== undefined) return this._gemTotal;
@@ -189,6 +208,10 @@
       else if (kind === 'fired') { const e = this.ents[ev[1]]; if (e) e.fired = true; }
       else if (kind === 'flag') this.flags[ev[1]] = ev[2];
       else if (kind === 'arm') { for (const s of (this.world.tags.get(ev[1]) || [])) if (s.loose && s.loose.state === 'dormant') s.loose.state = 'idle'; }
+      else if (kind === 'close') { const s = this.spanByBase(ev[1], ev[2], ev[3]); if (s && s.door) { s.door.state = 'closed'; s.door.holdUntil = 0; s.cl = s.fl; } }
+      else if (kind === 'tex') this.setTex(ev[1], ev[2], ev[3]);
+      else if (kind === 'set') this.setSpans(ev[1], ev[2]);
+      else if (kind === 'secret') { const s = this.spanByBase(ev[1], ev[2], ev[3]); if (s) this.markSecret(s); }
     }
     /** Make the current position (a brazier, a landing...) the respawn point. */
     setCheckpoint(x, y, z, ang) {
@@ -197,6 +220,7 @@
         x: x ?? p.x, y: y ?? p.y, z: z ?? p.z, ang: ang ?? p.ang,
         nEvents: this.events.length, inv: Object.assign({}, this.inv),
         persist: JSON.parse(JSON.stringify(this.persist)), maxLife: p.maxLife,
+        waves: this.spansWith.loose.filter(s => s.loose.state === 'shaking' && s.loose.wave).map(s => [s.cell.x, s.cell.y, s.baseFl, s.loose.t, s.loose.delay]),
       };
     }
 
@@ -234,7 +258,7 @@
       switch (it.kind) {
         case 'life': p.life = Math.min(p.maxLife, p.life + (it.heal || 1)); say(it.msg || 'You feel better.', it.sound || 'drink', [255, 80, 80]); this.face('grin'); break;
         case 'bigLife': p.maxLife = Math.min(this.cfg.lifeCap, p.maxLife + 1); p.life = p.maxLife; this.persist.maxLife = p.maxLife; say(it.msg || 'You feel stronger!', it.sound || 'bigdrink', [255, 220, 120]); this.face('grin'); break;
-        case 'poison': if (!opts.silent) this.sound('drink'); this.hurt(it.damage || 1, null, null, it.msg || 'Poison!'); break;
+        case 'poison': if (!opts.silent) this.sound('drink'); this.hurt(it.damage || 1, null, null, it.msg || 'Poison!', true); break;
         case 'gem': this.persist.gems++; say(it.msg || `${it.name}!`, it.sound || 'treasure', [120, 220, 255]); break;
         default:
           this.inv[id] = (this.inv[id] || 0) + 1;
@@ -279,6 +303,12 @@
         if (this.occupy(c, z, up)) continue;
         const inside = cx >= ox0 && cx <= ox1 && cy >= oy0 && cy <= oy1;
         if (inside && R.spanAt(c, z + 0.01)) continue; // squeezed by a crusher or gate: let them out
+        // carried into it (a floor that rose or fell with you): back out, never further in
+        if (inside) {
+          const pen = (x, y) => { const dx = Math.max(cx - x, 0, x - cx - 1), dy = Math.max(cy - y, 0, y - cy - 1);
+            return r - ((dx || dy) ? Math.hypot(dx, dy) : -Math.min(x - cx, cx + 1 - x, y - cy, cy + 1 - y)); };
+          if (pen(nx, ny) <= pen(p.x, p.y) + 1e-9) continue;
+        }
         return true;
       }
       for (const e of this.ents) {
@@ -293,9 +323,13 @@
     supportAt(x, y, z = this.player.z) {
       const fr = this.cfg.footRadius, r = this.cfg.radius;
       let fz = -1e9, cz = 1e9, top = null;
+      const cc = this.world.cellAt(Math.floor(x), Math.floor(y));
       for (let cy = Math.floor(y - fr); cy <= Math.floor(y + fr); cy++) for (let cx = Math.floor(x - fr); cx <= Math.floor(x + fr); cx++) {
-        const s = this.spanFor(this.world.cellAt(cx, cy), z);
-        if (s && s.fl > fz) { fz = s.fl; top = s; }
+        const c = this.world.cellAt(cx, cy), s = this.spanFor(c, z);
+        if (!s || s.fl <= fz) continue;
+        // a floor under your toes only lifts you if your own column has room for you up there (a lift sliding past)
+        if (c !== cc && s.fl > z + 1e-6 && !this.occupy(cc, s.fl, 0)) continue;
+        fz = s.fl; top = s;
       }
       for (let cy = Math.floor(y - r); cy <= Math.floor(y + r); cy++) for (let cx = Math.floor(x - r); cx <= Math.floor(x + r); cx++) {
         const s = this.spanFor(this.world.cellAt(cx, cy), z);
@@ -324,8 +358,19 @@
       if (!s) console.warn('No spans tagged', tag);
       return s || [];
     }
-    setTex(tag, prop, name) { const id = R.textures.id(name); for (const s of this.spansTagged(tag)) s[prop] = id; }
-    setSpans(tag, props) { for (const s of this.spansTagged(tag)) for (const [k, v] of Object.entries(props)) s[k] = ['ftex', 'ctex', 'wall', 'low', 'up'].includes(k) ? R.textures.id(v) : v; }
+    setTex(tag, prop, name) {
+      const id = R.textures.id(name);
+      for (const s of (this.world.tags.get(tag) || [])) s[prop] = id;
+      for (const b of (this.world.rockTags.get(tag) || [])) b[prop] = id;   // tagged rock (a lever face)
+      if (!this.world.tags.has(tag) && !this.world.rockTags.has(tag)) console.warn('No spans or rock tagged', tag);
+      this.record(['tex', tag, prop, name]);
+    }
+    setSpans(tag, props) {
+      const tex = k => ['ftex', 'ctex', 'wall', 'low', 'up'].includes(k);
+      for (const s of this.spansTagged(tag)) for (const [k, v] of Object.entries(props)) s[k] = tex(k) ? R.textures.id(v) : v;
+      for (const b of (this.world.rockTags.get(tag) || [])) for (const [k, v] of Object.entries(props)) if (tex(k)) b[k] = R.textures.id(v);
+      this.record(['set', tag, Object.assign({}, props)]);
+    }
     moveSpans(tag, prop, target, speed = 1, then = null) {
       const spans = this.spansTagged(tag);
       this.record(['move', tag, prop, target]);
@@ -354,7 +399,11 @@
       }
     }
     closeDoor(tag) {
-      for (const s of this.spansTagged(tag)) if (s.door && s.door.state !== 'closed') { s.door.state = 'closing'; s.door.holdUntil = 0; this.sound(s.door.sound, s.cell.x + 0.5, s.cell.y + 0.5, 0.7, s.fl); }
+      for (const s of this.spansTagged(tag)) if (s.door && s.door.state !== 'closed') {
+        s.door.state = 'closing'; s.door.holdUntil = 0;
+        this.record(['close', s.cell.x, s.cell.y, s.baseFl]);
+        this.sound(s.door.sound, s.cell.x + 0.5, s.cell.y + 0.5, 0.7, s.fl);
+      }
     }
     useDoor(s) {
       const d = s.door;
@@ -506,28 +555,29 @@
       band.wall = R.textures.id(L.on ? (L.texOn || 'LEVER_DOWN') : (L.texOff || 'LEVER_UP'));
       this.record(['lever', c.x, c.y, c.band.indexOf(band)]);
       if (!replay) this.sound('switch', c.x + 0.5, c.y + 0.5);
-      if (L.on) {
-        if (L.opens) { if (replay) for (const s of (this.world.tags.get(L.opens) || [])) { if (s.door) { s.door.state = 'open'; s.cl = s.doorTop; } } else this.openDoor(L.opens, L.hold || 0); }
-        if (L.closes && !replay) this.closeDoor(L.closes);
-        if (L.lift) this.moveSpans(L.lift.tag, L.lift.prop || 'fl', L.lift.to, L.lift.speed || 0.8);
-      } else if (L.opens) this.closeDoor(L.opens);
+      // gates move only live: a permanent open or a close is in the log already; a timed open is not replayed
+      if (!replay) {
+        if (L.on) { if (L.opens) this.openDoor(L.opens, L.hold || 0); if (L.closes) this.closeDoor(L.closes); }
+        else if (L.opens) this.closeDoor(L.opens);
+      }
+      if (L.on && L.lift) this.moveSpans(L.lift.tag, L.lift.prop || 'fl', L.lift.to, L.lift.speed || 0.8);
       if (!replay && L.msg) this.msg(L.msg);
       if (!replay && L.script) this.runScript(L.script, { cell: c, band });
     }
 
     // ============================================================== damage & death
-    hurt(n, sx, sy, message) {
+    hurt(n, sx, sy, message, force = false) {
       const p = this.player;
-      if (!p.alive || p.invuln > 0 || this.god) return false;
+      if (!p.alive || (p.invuln > 0 && !force) || this.god || this.levelDone || this.won) return false;
       p.life -= n;
-      p.invuln = this.cfg.invuln;
+      p.invuln = Math.max(p.invuln, this.cfg.invuln);
       this.flash([255, 0, 0], Math.min(0.6, 0.25 + n * 0.15));
       this.face('ouch');
       this.shake(0.3);
       if (sx !== undefined && sx !== null) {
-        let dx = p.x - sx, dy = p.y - sy; const l = Math.hypot(dx, dy) || 1;
-        if (l < 1e-3) { dx = -Math.cos(p.ang); dy = -Math.sin(p.ang); }
-        p.kvx = dx / l * this.cfg.knock; p.kvy = dy / l * this.cfg.knock;
+        let dx = p.x - sx, dy = p.y - sy; const l = Math.hypot(dx, dy);
+        if (l < 1e-3) { dx = -Math.cos(p.ang); dy = -Math.sin(p.ang); } else { dx /= l; dy /= l; }
+        p.kvx = dx * this.cfg.knock; p.kvy = dy * this.cfg.knock;
       }
       if (message) this.msg(message, 3);
       if (p.life <= 0) { p.life = 0; this.die(message); } else this.sound('hurt');
@@ -535,7 +585,7 @@
     }
     kill(message) {
       const p = this.player;
-      if (!p.alive || this.god) return false;
+      if (!p.alive || this.god || this.levelDone || this.won) return false;
       p.life = 0;
       this.flash([255, 0, 0], 0.7);
       this.die(message);
@@ -552,11 +602,25 @@
     respawn() {
       const cp = this.cp, keep = { clock: this.persist.clock, deaths: this.persist.deaths, timed: this.persist.timed };
       const evs = this.events.slice(0, cp.nEvents);
+      // what you have seen stays on the map
+      const seenCells = [], seenSpans = [], seenEnts = [];
+      for (const c of this.world.cells) {
+        if (c.seen) seenCells.push([c.x, c.y]);
+        for (const s of c.spans) if (s.seen) seenSpans.push([c.x, c.y, s.origFl ?? s.baseFl]);
+      }
+      for (const e of this.ents) if (e.initial && e.seen) seenEnts.push(e.id);
       this.persist = Object.assign(JSON.parse(JSON.stringify(cp.persist)), keep);
       this.loadLevel(this.levelIndex, { respawn: true });
       this.replaying = true;
       for (const ev of evs) this.applyEvent(ev);
+      for (const [x, y, fl, t, delay] of (cp.waves || [])) {
+        const s = this.spanByBase(x, y, fl);
+        if (s && s.loose && s.loose.state !== 'fallen') Object.assign(s.loose, { state: 'shaking', t, delay, wave: true });
+      }
       this.replaying = false;
+      for (const [x, y] of seenCells) { const c = this.world.cellAt(x, y); if (c) c.seen = true; }
+      for (const [x, y, b] of seenSpans) { const s = this.spanByBase(x, y, b); if (s) s.seen = true; }
+      for (const id of seenEnts) if (this.ents[id]) this.ents[id].seen = true;
       this.events = evs;
       this.inv = Object.assign({}, cp.inv);
       this.cp = cp;
@@ -605,7 +669,10 @@
       for (const e of this.ents) {
         if (e.gone) continue;
         if (e.def.update) e.def.update(e, this, dt);
-        if (!p.alive || this.won || !e.def.touch) continue;
+        // where it stands (the renderer only reads this): items touch from their floor up
+        if (e.spec.zAbs !== undefined) e.z = e.spec.zAbs;
+        else if (!e.free && e.zf === undefined) e.z = this.entFloor(e) + (e.hang || e.type === 'item' ? 0 : e.zOff);
+        if (!p.alive || this.won || this.levelDone || !e.def.touch) continue;
         if (Math.abs(p.x - e.x) > 2 || Math.abs(p.y - e.y) > 2) continue;
         const d = Math.hypot(p.x - e.x, p.y - e.y);
         if (d < e.radius + cfg.radius && p.z < e.z + e.height && p.z + cfg.height > e.z) e.def.touch(e, this);
@@ -622,6 +689,7 @@
       if (inp.jump) p.jumpBuf = this.time;
       if (inp.about && p.turnLeft <= 0 && !p.act) p.turnLeft = Math.PI;
       if (p.act) { this.updateAction(dt, inp, fwdEdge); this.afterMove(dt); return; }
+      this.unbury();
 
       // turning (gentle ramp for fine aiming), quick about-face, axis magnetism
       if (inp.turn) p.turnHeld += dt; else p.turnHeld = 0;
@@ -696,7 +764,7 @@
       if (p.onGround && sup.fz < p.z - 0.001 && sup.fz >= p.z - cfg.stepUp && p.vz <= 0) p.z = sup.fz;
       if (sup.fz >= p.z - 0.001 && p.vz <= 0) {
         if (!p.onGround) this.land(sup);
-        p.z = Math.max(p.z, sup.fz); p.vz = 0; p.onGround = true; p.lastGround = this.time;
+        p.z = Math.max(p.z, sup.fz); p.vz = 0; p.onGround = true; p.lastGround = this.time; p.fallFrom = p.z;
       } else {
         if (p.onGround) { p.onGround = false; p.fallFrom = p.z; p.airCap = Math.max(Math.hypot(p.vx, p.vy), 0.5); p.screamed = false; }
         const prevVz = p.vz;
@@ -719,6 +787,15 @@
       this.afterMove(dt);
     }
 
+    /** If the feet are inside rock (a floor moved through you), stand on the nearest floor of your column. */
+    unbury() {
+      const p = this.player, c = this.cellAt(p.x, p.y);
+      if (!c || R.spanAt(c, p.z + 0.01)) return;
+      let best = null;
+      for (const s of c.spans) if (s.cl - s.fl >= this.cfg.height && (!best || Math.abs(s.fl - p.z) < Math.abs(best.fl - p.z))) best = s;
+      if (!best) { this.kill('Crushed in the rock!'); return; }
+      p.z = best.fl; p.vz = 0; p.fallFrom = p.z; p.onGround = true; p.lastGround = this.time;
+    }
     doJump(fwd) {
       const p = this.player, cfg = this.cfg;
       let dx = Math.cos(p.ang), dy = Math.sin(p.ang);
@@ -810,7 +887,7 @@
       const L = this.ledgeAhead(cfg.climbMin, cfg.climbMax, cfg.climbReach);
       if (!L) return false;
       if (dry) return true;
-      p.act = { kind: 'climb', t: 0, dur: cfg.climbTime, x0: p.x, y0: p.y, z0: p.z, x1: L.ex, y1: L.ey, z1: L.z };
+      p.act = { kind: 'climb', t: 0, dur: cfg.climbTime, x0: p.x, y0: p.y, z0: p.z, x1: L.ex, y1: L.ey, z1: L.z, span: L.span, zs: L.z };
       p.vx = p.vy = p.vz = 0; p.onGround = false; p.snapUntil = -1;
       this.sound(L.z - p.z > 0.9 ? 'climb' : 'grab', undefined, undefined, 0.7);
       return true;
@@ -820,11 +897,19 @@
       const p = this.player, cfg = this.cfg;
       const L = this.ledgeAhead(cfg.catchLow, cfg.catchHigh, cfg.radius + 0.03); // on contact with the face
       if (!L) return false;
-      p.vx = p.vy = p.vz = 0; p.kvx = p.kvy = 0; p.onGround = false; p.snapUntil = -1; p.upJump = false;
       const hz = L.z - cfg.hangDepth;
+      if (p.careful) {
+        // never hang with the feet in the floor under the hang point (a low lip over a floor)
+        const r = cfg.radius;
+        for (let cy = Math.floor(L.hy - r); cy <= Math.floor(L.hy + r); cy++) for (let cx = Math.floor(L.hx - r); cx <= Math.floor(L.hx + r); cx++) {
+          const c = this.world.cellAt(cx, cy), sp = c && R.spanAt(c, hz + 0.01);
+          if (!sp || sp.cl < hz + cfg.height) return false;
+        }
+      }
+      p.vx = p.vy = p.vz = 0; p.kvx = p.kvy = 0; p.onGround = false; p.snapUntil = -1; p.upJump = false;
       const ledge = { z: L.z, ex: L.ex, ey: L.ey, span: L.span };
       if (p.careful) p.act = { kind: 'lower', t: 0, dur: 0.15, x0: p.x, y0: p.y, z0: p.z, x1: L.hx, y1: L.hy, z1: hz, ledge };
-      else p.act = { kind: 'climb', t: 0, dur: cfg.climbTime * Math.max(0.5, (L.z - p.z + 0.4) / 1.3), x0: p.x, y0: p.y, z0: p.z, x1: L.ex, y1: L.ey, z1: L.z };
+      else p.act = { kind: 'climb', t: 0, dur: cfg.climbTime * Math.max(0.5, (L.z - p.z + 0.4) / 1.3), x0: p.x, y0: p.y, z0: p.z, x1: L.ex, y1: L.ey, z1: L.z, span: L.span, zs: L.z };
       this.sound('grab', undefined, undefined, 0.8);
       this.face('ouch');
       return true;
@@ -855,6 +940,8 @@
         const depth = p.z - below.fl;
         if (depth <= cfg.stepUp) continue;
         const toFloor = depth <= cfg.hangDepth + 0.05;
+        const hzd = below.hazard && this.hazardDefs[below.hazard];
+        if (toFloor && hzd && hzd.deadly) continue;   // not onto lava: the careful guard shows EDGE
         const z1 = toFloor ? below.fl : p.z - cfg.hangDepth;
         let ok = true;
         const r = cfg.radius;
@@ -878,6 +965,11 @@
       a.t += dt;
       const f = a.dur ? Math.min(1, a.t / a.dur) : 1;
       if (a.kind === 'climb') {
+        // the ledge moved (a lift, a bobbing stone): follow it, or let go if it moved away
+        if (a.span) {
+          if (Math.abs(a.span.fl - a.zs) > 0.6 || (a.span.loose && a.span.loose.state === 'fallen')) { p.act = null; p.onGround = false; p.vz = 0; p.fallFrom = p.z; p.airCap = 0.3; this.sound('drop', undefined, undefined, 0.5); return; }
+          a.z1 = a.span.fl;
+        }
         // rise in your own column first, then step onto the ledge (never through its lip)
         const up = U.smooth(Math.min(1, f / 0.6)), fwd = U.smooth(Math.max(0, (f - 0.6) / 0.4));
         p.z = a.z0 + (a.z1 - a.z0) * up;
@@ -897,7 +989,7 @@
         if (!gone && ((p.jumpBuf >= 0 && this.time - p.jumpBuf <= cfg.jumpBuffer) || (fwdEdge && a.t > 0.2))) {
           p.jumpBuf = -1;
           if (this.blockedAtDest(a.ledge.ex, a.ledge.ey, a.ledge.z)) { this.sound('noway', undefined, undefined, 0.5); return; }
-          p.act = { kind: 'climb', t: 0, dur: cfg.pullTime, x0: p.x, y0: p.y, z0: p.z, x1: a.ledge.ex, y1: a.ledge.ey, z1: a.ledge.z };
+          p.act = { kind: 'climb', t: 0, dur: cfg.pullTime, x0: p.x, y0: p.y, z0: p.z, x1: a.ledge.ex, y1: a.ledge.ey, z1: a.ledge.z, span: a.ledge.span, zs: a.ledge.z };
           this.sound('climb', undefined, undefined, 0.6);
         } else if (gone || !p.careful || (inp.fwd || 0) < 0) {
           // let go: the fall is measured from the hang
@@ -953,10 +1045,10 @@
     }
     enterSpan(s) {
       if (s.checkpoint) this.setCheckpoint(s.cell.x + 0.5, s.cell.y + 0.5, s.fl, this.player.ang);
-      if (s.secret && !s.secretFound) { s.secretFound = true; this.persist.secrets++; this.msg('A secret area!'); this.sound('secret'); }
+      if (s.secret && !s.secretFound) { this.markSecret(s); this.record(['secret', s.cell.x, s.cell.y, s.origFl ?? s.baseFl]); this.persist.secrets++; this.msg('A secret area!'); this.sound('secret'); }
       if (s.enter) this.runScript(s.enter, { span: s });
       if (s.label && s.label !== this.lastLabel) { this.lastLabel = s.label; this.hooks.area && this.hooks.area(s.label); }
-      if (s.music && this.hooks.music) this.hooks.music(s.music);
+      if (this.hooks.music) this.hooks.music(s.music || null);
     }
     applyHazards(dt, s) {
       const p = this.player, cfg = this.cfg;
@@ -1047,7 +1139,6 @@
         else if (e.hang || spr.hang) z = (s ? s.cl : e.z0 + 1.25) - spr.h / 64 * spr.scale * (e.scale || 1) - (e.spec.drop || 0);
         else if (e.free) z = e.z;
         else z = (s ? s.fl : e.z0) + e.zOff + (e.bob ? 0.04 + 0.035 * Math.sin(this.time * 3 + e.id) : 0);
-        if (!e.free && zAbs === undefined && e.zf === undefined) e.z = e.hang ? (s ? s.fl : e.z0) : z;
         const frame = e.frame !== undefined ? e.frame : spr.frames.length > 1 ? Math.floor((this.time + e.id * 0.37) * spr.fps) : 0;
         list.push({ x: e.x, y: e.y, z, spr, frame, light: Math.min(31, (s ? s.light : 16) + (e.spec.light || 0)), fog: s ? s.fog : false, flip: !!e.flip, bright: !!e.bright, scale: e.scale, ent: e });
       }

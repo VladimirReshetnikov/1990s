@@ -32,16 +32,17 @@ console.
     name: 'The Chasm of Echoes',
     subtitle: 'One line under the title on the level card.',
     width: 40, height: 24,                   // every layer map is exactly width x height
-    music: 'chasm',                          // song name (game/audio.js); a template's `music` switches songs for an area
+    music: 'chasm',                          // song name (game/audio.js); a template's `music` plays while you are in its spans
     startMessage: 'Shown for 7 s when the level begins.',
     falloff: 0.5,                            // optional: how fast light fades with distance (campaign 1.05; lower for vast caverns)
     sky: 'STARS',                            // optional sky texture for `sky: true` spans
     legend: { /* level characters; must not shadow campaign characters */ },
     layers: [
       { z: 0,   map: [ /* height rows of width chars */ ] },
-      { z: 1.5, map: [ ... ], legend: { /* characters for this layer only */ }, defaults: { light: 18 }, lightMin: 16 },
+      { z: 1.5, map: [ ... ], legend: { /* characters for this layer only */ }, defaults: { low: 'SANDSTONE' }, lightMin: 16 },
     ],                                       // z is a multiple of 1.5 (a storey); `defaults` apply to every template of the layer
-                                             // that doesn't set the field itself; `lightMin` raises every span of the layer to at least that light
+                                             // (including through its base chain) leaves unset - campaign characters set fl, cl, textures
+                                             // and light, so use `lightMin` to raise every span of the layer to at least that light
     ents: [                                  // entities placed by coordinate (saves legend characters)
       { x: 12, y: 5, z: 1.5, tpl: 'darts', dir: 'W' },     // z = height of the floor it stands on
       { x: 3, y: 9, z: 0, type: 'deco', sprite: 'SKELETON_SITTING', dx: -0.3 },
@@ -62,7 +63,8 @@ console.
   2.75 tall (two storeys: put `' '` rock in the layer above), `;` 4.25 tall.
 * `_` is a hole: it merges with the open span below it (a pit you can fall into,
   a shaft, an opening over a lower room). There must be open space below it;
-  a bottomless drop is `~` (abyss, deadly). A span may not cut into the span
+  a bottomless drop is `~` (abyss, deadly). A pit or a loose floor may not sit
+  directly over a door or gate (a door's opening is its ceiling). A span may not cut into the span
   below it: the compiler tells you where.
 * Steps `1`..`5` are floors at 0.25 .. 1.25 (a flight up one storey is
   `12345` and then the next layer's floor).
@@ -165,6 +167,21 @@ used, on rock), and:
 Any entity takes `scale` (sprite size) and `dx`/`dy` (nudge within the cell);
 things that never move (decos, items, notes, braziers) take their floor from
 the cell they were placed in, even when nudged past a lip.
+
+Legend traps: `base` does not inherit `ent`, `start`, `door`, `loose`, `plate`,
+`exit`, `use` or `lever` (give the new character its own); an entity character
+(`base: 'auto'`) cannot be a `base` (the compiler says so); string aliases
+(`'a': 'b'`) are fine, cycles are reported.
+
+Tags: `g.spansTagged(tag)` returns spans; a tagged rock face (a lever) is
+retextured with `g.setTex(tag, 'wall', ...)` / `g.setSpans`, which reach both and
+are remembered by checkpoints.
+
+Timed gates in the solver: a plate or lever with `hold` never leaves its gate
+open in the solver's world; standing there gives a move through the gate that
+must fit the budget, so a route that comes back to the gate later needs the
+plate again. Solid entities (posts, barrels) block a crossing when no gap of
+body width is left on the shared face.
 
 Notes: a pit (`_`) merges into the span below it and takes that span's light
 (its own `light` is not kept). `onStart` runs when the level starts, not on a

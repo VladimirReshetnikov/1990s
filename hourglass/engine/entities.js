@@ -33,6 +33,7 @@
       e.sprite = e.spec.sprite || it.sprite;
       e.radius = e.spec.radius ?? 0.45;
       e.bob = !g.isDrink(e.spec.item);
+      e.height = Math.max(e.height, e.zOff + 0.6);   // a raised item (a key on an anvil) is taken by walking up to it
     },
     touch(e, g) {
       if (!g.isDrink(e.spec.item)) { g.give(e.spec.item, { entity: e }); g.remove(e); if (e.spec.script) g.runScript(e.spec.script, { entity: e }); return; }
@@ -81,8 +82,14 @@
       for (const o of g.ents) if (o.type === 'checkpoint') o.lit = false;
       e.lit = true;
       g.record(['lit', e.id]);
-      // respawn facing spec.face ('N'|'E'|'S'|'W' or radians), else the way you faced when you lit it
-      g.setCheckpoint(e.x0, e.y0, e.z0, e.spec.face !== undefined ? U.dirAngle(e.spec.face) : g.player.ang);
+      // respawn where the body fits (the sprite may be nudged against a wall), facing spec.face or the way you faced
+      let cx = e.x0, cy = e.y0;
+      if (g.blockedAtDest(cx, cy, e.z0) && e.spec.cellX !== undefined) {
+        const r = g.cfg.radius + 1e-3, X = e.spec.cellX, Y = e.spec.cellY;
+        cx = Math.min(Math.max(cx, X + r), X + 1 - r); cy = Math.min(Math.max(cy, Y + r), Y + 1 - r);
+        if (g.blockedAtDest(cx, cy, e.z0)) { cx = X + 0.5; cy = Y + 0.5; }
+      }
+      g.setCheckpoint(cx, cy, e.z0, e.spec.face !== undefined ? U.dirAngle(e.spec.face) : g.player.ang);
       g.msg(e.spec.msg || 'The brazier flares up. You will return here if you fall.', 3);
       g.sound('checkpoint');
     },

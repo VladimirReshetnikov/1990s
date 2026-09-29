@@ -450,19 +450,26 @@ function replayLevel(lv, opts = {}) {
     if (!opts.all) {
       print(`  leg → ${leg.label} (round ${leg.round + 1}): ${leg.edges.length} edges${fresh.length < leg.edges.length ? `, ${leg.edges.length - fresh.length} already replayed` : ''}`);
       const freshSet = new Set(fresh);
-      const E = leg.edges;
+      // a timed crossing is replayed as its own moves, with its gate held up (the solver checked the budget)
+      const E = [], RN = [];
+      for (const e of leg.edges) {
+        if (e.kind === 'timed') {
+          const rt = Object.assign({}, rnd, { state: Object.assign({}, rnd.state, { open: rnd.state.open.concat([e.tag]) }) });
+          for (const sub of e.path) { E.push(sub); RN.push(rt); if (freshSet.has(e)) freshSet.add(sub); }
+        } else { E.push(e); RN.push(rnd); }
+      }
       for (let i = 0; i < E.length; i++) {
         const ground = e => e.kind === 'walk' || e.kind === 'step';
         if (ground(E[i]) && danger.has(sid(E[i].to))) {
           // extend through the hazard cells to the next safe stop
           let j = i;
-          while (j + 1 < E.length && ground(E[j + 1]) && danger.has(sid(E[j].to))) j++;
+          while (j + 1 < E.length && ground(E[j + 1]) && danger.has(sid(E[j].to)) && RN[j + 1] === RN[i]) j++;
           const seg = E.slice(i, j + 1);
-          if (seg.some(e => freshSet.has(e))) runSegment(rnd, seg);
+          if (seg.some(e => freshSet.has(e))) runSegment(RN[i], seg);
           i = j;
           continue;
         }
-        if (freshSet.has(E[i])) run(rnd, E[i], true);
+        if (freshSet.has(E[i])) run(RN[i], E[i], true);
       }
     }
   }

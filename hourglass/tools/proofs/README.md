@@ -14,6 +14,7 @@ Run any of them from anywhere: `node tools/proofs/<name>.js`.
 | `forge_bellows.js` | the vent corridor is crossed unhurt from every start moment, with reaction error; walking straight through burns you |
 | `forge_moves.js` | the Forge's lifts, sinking stones, chute and other set-pieces (19 checks) |
 | `forge_playthrough.js` | the Forge from start to exit (about 180 s), no damage, all braziers |
+| `engine_regressions.js` | engine bugs found by the code review stay fixed (catches at low lips, lifts, braziers against walls, raised items, the map after a respawn) |
 | `tower_dart_stair.js` | the dart stair is climbed unhurt from every start moment by ducking into the alcoves; climbing blind fails |
 
 When you change a level, re-run its proofs along with `verify.js` and
