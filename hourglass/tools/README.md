@@ -212,3 +212,10 @@ Options: `--level 0|id`, `--x --y --z` (default: the level start), `--ang
 0|E|N|W|S`, `--pitch`, `--w 356 --h 200`, `--scale 3`, `--map` (automap of
 that storey), `--give key_bronze,...`. As a module: `snap(opts)` returns
 `{ w, h, rgba, game }`; `writePNG(file, w, h, rgba)`, `upscale(img, k)`.
+
+## proofs/ — real-physics proofs
+
+`tools/proofs/` holds scripts that play the hardest parts of each level in the
+real engine where `replay.js` cannot plan its way through (long dart
+gauntlets, bobbing stones, lifts), and full playthroughs. See
+`tools/proofs/README.md`.
