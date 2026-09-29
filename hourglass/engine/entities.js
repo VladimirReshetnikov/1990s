@@ -35,7 +35,7 @@
       e.bob = !g.isDrink(e.spec.item);
     },
     touch(e, g) {
-      if (!g.isDrink(e.spec.item)) { g.give(e.spec.item, { entity: e }); g.remove(e); return; }
+      if (!g.isDrink(e.spec.item)) { g.give(e.spec.item, { entity: e }); g.remove(e); if (e.spec.script) g.runScript(e.spec.script, { entity: e }); return; }
       if (!e._hinted || g.time - e._hinted > 8) { e._hinted = g.time; g.msg(e.spec.hint || 'A little bottle. Press E to drink.', 3); }
     },
     use(e, g) {
@@ -43,6 +43,7 @@
       if (it.kind === 'life' && p.life >= p.maxLife) { g.msg('You are not hurt. Keep it for later.', 2); g.sound('noway', undefined, undefined, 0.5); return; }
       g.give(e.spec.item, { entity: e });
       g.remove(e);
+      if (e.spec.script) g.runScript(e.spec.script, { entity: e });
     },
   });
 
@@ -62,6 +63,8 @@
     init(e) { e.radius = e.spec.radius ?? 0.6; e.sprite = null; e.height = 1.2; },
     touch(e, g) {
       if (e.spec.once !== false && e.fired) return;
+      // conditions: needs 'item' / unless 'item' / flag 'name' (only while that flag is set)
+      if ((e.spec.needs && !g.has(e.spec.needs)) || (e.spec.unless && g.has(e.spec.unless)) || (e.spec.flag && !g.flag(e.spec.flag))) return;
       e.fired = true;
       if (e.initial && e.spec.once !== false) g.record(['fired', e.id]);
       if (e.spec.script) g.runScript(e.spec.script, { entity: e });
@@ -78,7 +81,8 @@
       for (const o of g.ents) if (o.type === 'checkpoint') o.lit = false;
       e.lit = true;
       g.record(['lit', e.id]);
-      g.setCheckpoint(e.x0, e.y0, e.z0, g.player.ang);
+      // respawn facing spec.face ('N'|'E'|'S'|'W' or radians), else the way you faced when you lit it
+      g.setCheckpoint(e.x0, e.y0, e.z0, e.spec.face !== undefined ? U.dirAngle(e.spec.face) : g.player.ang);
       g.msg(e.spec.msg || 'The brazier flares up. You will return here if you fall.', 3);
       g.sound('checkpoint');
     },
@@ -220,6 +224,9 @@
       if (e.z <= e.spec.landZ) {
         e.z = e.spec.landZ; e.landed = true;
         if (e.spec.landZ < -30) { e.gone = true; return; }
+        // into lava: it sinks with a hiss
+        const c = g.world.cellAt(Math.floor(e.x), Math.floor(e.y)), under = c && R.spanAt(c, e.spec.landZ + 0.02);
+        if (under && under.hazard === 'lava') { e.gone = true; g.sound('sizzle', e.x, e.y, 1, e.z); return; }
         e.sprite = 'RUBBLE'; e.free = false; e.z0 = e.spec.landZ;
         g.sound('crash', e.x, e.y, 1, e.z);
         const p = g.player;

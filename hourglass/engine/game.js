@@ -420,12 +420,13 @@
     }
     /** A crumbling wave: every loose floor tagged `tag` starts to shake as the wave (speed u/s) reaches it from (x, y), and drops `lag` s later. */
     crumble(tag, x, y, speed = 3.5, lag = 0.3) {
+      let n = 0;
       for (const s of this.spansTagged(tag)) {
         const L = s.loose;
         if (!L || (L.state !== 'idle' && L.state !== 'dormant')) continue;
-        L.state = 'shaking'; L.t = -Math.hypot(s.cell.x + 0.5 - x, s.cell.y + 0.5 - y) / speed; L.delay = lag; L.wave = true;
+        L.state = 'shaking'; L.t = -Math.hypot(s.cell.x + 0.5 - x, s.cell.y + 0.5 - y) / speed; L.delay = lag; L.wave = true; n++;
       }
-      this.sound('crumble', x, y, 0.8);
+      if (n) this.sound('crumble', x, y, 0.8);   // calling it again is harmless and silent
     }
     updateLoose(dt) {
       const p = this.player;
@@ -456,8 +457,12 @@
         below.cl = below.baseCl = s.cl; below.ctex = s.ctex; below.sky = below.sky || s.sky;
         c.spans.splice(i, 1);
         for (const b of c.band) if (b.span === s) b.span = below;
-        if (below.plate) below.plate.jammed = true; // rubble holds a plate down for good
-        if (instant) this.spawn({ type: 'deco', x, y, z0: below.fl, sprite: 'RUBBLE' });
+        if (below.plate) {
+          below.plate.jammed = true; // rubble holds a plate down for good
+          // rebuilding a checkpoint: what the jam did (gates, lifts, flags) is replayed from the log, silently
+          if (this.replaying) { const P = below.plate; P.jamDone = P.pressed = P.said = true; below.fl = below.baseFl - 0.04; }
+        }
+        if (instant && below.hazard !== 'lava') this.spawn({ type: 'deco', x, y, z0: below.fl, sprite: 'RUBBLE' });
         else this.spawn({ type: 'fallingTile', x, y, z0, landZ: below.fl, sprite, rider });
       } else {
         s.origFl = s.baseFl; s.fl = s.baseFl = -60; s.hazard = 'abyss';
@@ -1031,7 +1036,10 @@
           if (!ok) continue;
         }
         const spr = bank.sprite(name);
-        const c = this.world.cellAt(Math.floor(e.hang ? e.x0 : e.x), Math.floor(e.hang ? e.y0 : e.y));
+        // things that never move take their floor from the cell they were placed in (a post nudged past a lip)
+        const still = e.type === 'deco' || e.type === 'item' || e.type === 'note' || e.type === 'checkpoint';
+        const c = still && e.spec.cellX !== undefined ? this.world.cellAt(e.spec.cellX, e.spec.cellY)
+          : this.world.cellAt(Math.floor(e.hang ? e.x0 : e.x), Math.floor(e.hang ? e.y0 : e.y));
         const zAbs = e.spec.zAbs, zq = zAbs !== undefined ? zAbs : e.free ? e.z : (e.zf ?? e.z0);
         const s = c && (R.spanAt(c, zq + 0.02) || R.spanBelow(c, zq + 0.02));
         let z;

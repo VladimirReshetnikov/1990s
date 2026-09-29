@@ -110,6 +110,14 @@ function replayEdge(lv, rnd, e, opts = {}) {
   // loose ceiling flags the solver knocked down (map them all first: dropping re-indexes a cell's spans)
   for (const u of (rnd.gone || []).map(q => spanOf(g, sid(q)))) if (u && u.loose) g.dropFloor(u, true);
   for (const c of g.world.cells) for (const s of c.spans) if (s !== to) s.exit = false;
+  // a floor that turns molten on a beat ('cycle'): start when both ends of the move are safe
+  const cyc = [from, to].filter(s => s.anim && s.anim.type === 'cycle');
+  if (cyc.length) {
+    const cycle = R.cellAnims.get('cycle');
+    for (let k = 0; k < 400; k++) { for (const s of cyc) cycle.update(s, g.time, g); if (cyc.every(s => !s.hazard)) break; g.time += 0.05; }
+    if (cyc.some(s => s.hazard)) return { ok: false, note: 'a cycling floor never turns safe' };
+    g.time += 0.05;
+  }
   const p = g.player, cfg = g.cfg;
   const [dx, dy] = e.dir || [1, 0];
   const cx = from.cell.x + 0.5, cy = from.cell.y + 0.5;
@@ -217,6 +225,8 @@ function dangerMap(lv, secs) {
       for (let cy = Math.floor(e.y - rr); cy <= Math.floor(e.y + rr); cy++) for (let cx = Math.floor(e.x - rr); cx <= Math.floor(e.x + rr); cx++) {
         const c = g.world.cellAt(cx, cy);
         if (!c) continue;
+        // only where it reaches someone standing at the cell centre: that is where a player stops
+        if (Math.hypot(cx + 0.5 - e.x, cy + 0.5 - e.y) > rr + 0.05) continue;
         for (const sp of c.spans) if (sp.fl <= e.z + (e.height || 0.6) + 0.1 && sp.fl + g.cfg.height >= e.z - 0.1) danger.add(sid(sp));
       }
     }

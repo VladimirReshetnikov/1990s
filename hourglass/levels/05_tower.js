@@ -3,77 +3,100 @@
  *
  * STOREYS (Sk = floor at 1.5k): layers z = 0 (S0) .. 12 (S8, the roof), plus
  * z = 13.5, which only caps the enclosed top of the dart stair with sky.
- * Coordinates are (x, y), y growing south; map 30 x 22.
+ * Coordinates are (x, y), y growing south; map 30 x 22. The legend holds kinds of
+ * cell; single things (wall torches, notes, rocks, dart slots, the boulder, the
+ * Seal...) are placed by coordinate in `ents`, grouped by set-piece at the end.
  *
  * THE ATRIUM: box x 13..23, y 5..14; its 9 x 8 void (x 14..22, y 6..13) is
- * open from the S0 floor to the stars. Its ring holds, storey by storey:
+ * open from the S0 floor to the dawn sky (sky 'DAWN'; falloff 0.6, so its far
+ * walls read from every storey). Its ring holds, storey by storey:
  * S0 a colonnade (ceiling 1.9); S2 an arcade all round (the Ring of Teeth; its
  * south side has fallen in, rubble below); S4 the Clockwork Gallery along the
  * north side; S6 the south balcony; S8 the roof round the hatch. Blue tile
  * friezes band the odd storeys so you can count them from anywhere. The Seal's
  * red-and-cream column (15..16, 7..8) rises from S0 to S6; three floating
- * stepping-stones hang at S6 east of it (18,7) (20,7) (22,7).
+ * stepping-stones hang at S6 east of it (18,7) (20,7) (22,7). The Vizier's great
+ * hourglass (HOURGLASS_GREAT x2, the game's namesake) stands on an ablaq stand
+ * (18,10) 2.0 high in the middle of the floor, in the first view and seen again
+ * from the Ring of Teeth and the gallery; out of reach (2.0 is unclimbable, and
+ * it is 4 cells from every ledge above it).
  *
  * SET-PIECES
- *  5.1 The Atrium (S0): enter from the south hall (start 19,17). The S4
- *      crushers and pendulum, the S6 bridge and stones are all seen from below.
- *      Climb the plinth (13,12) to S1 (brazier), then the arcade at (13,11), S2.
- *  5.2 The Ring of Teeth (S2 arcade): three 1-deep troughs of teeth, each
- *      followed at once by a cracked flag and then solid floor - (13,8)/(13,7),
- *      (16,5)/(17,5), (20,5)/(21,5). Careful-step to the lip, standing jump,
- *      keep walking. Stopping on a flag drops you 3.0 into the atrium (-1) beside
- *      the plinth climb. East arc: the slicer door (24..28, 8), brazier (25,8),
- *      a thief cut in two (26,8), the jaws (27,8).
+ *  5.1 The Atrium (S0): enter from the south hall (start 19,17). The great
+ *      hourglass, the S4 crushers and pendulum, the S6 bridge and stones are all
+ *      seen from below. Climb the plinth (13,12) to S1 (brazier), then the arcade
+ *      at (13,11), S2.
+ *  5.2 The Ring of Teeth (S2 arcade): three 1-deep troughs of teeth (drawn 1.25x
+ *      so their tips stand above the rim), each followed at once by a cracked flag
+ *      and then solid floor - (13,8)/(13,7), (16,5)/(17,5), (20,5)/(21,5).
+ *      Careful-step to the lip, standing jump, keep walking. Stopping on a flag
+ *      drops you 3.0 into the atrium (-1) beside the plinth climb. East arc: the
+ *      slicer door (24..28, 8), brazier (25,8), a thief cut in two (26,8), the
+ *      jaws (27,8).
  *  East stair: flight (28, 7..3) to the S3 landing (28,2), flight (27..23, 2)
  *      to S4 (22,2), brazier (22,3).
  *  5.3 The Clockwork Gallery (S4, y 5): plate (22,5) raises the gate (13,5) for
  *      12 s (sand-glasses at both). Between them, straight west: crusher (19,5),
  *      crusher (17,5), pendulum (15,5), safe cells between. Too late? The hole
- *      (14,4) drops you 1 storey into the Undercroft (S3, y 3), which loops east
- *      to a climb (21,3) -> (22,3) back to the plate. Beyond the gate, the
- *      Clockwork Room (9..12, 3..7): a cracked ceiling flag over (9,5). Jump
- *      straight up under it, step back, then climb west through the hole onto
- *      the Clockmaker's Loft (8,5), S5. (A secret door (11,8) hides a stair to
- *      the loft with the great potion (12,11); the solver uses it, see below.)
- *  S5 the Loft: west and south along x 6. A rockfall niche with a skeleton at
- *      (5,10) shows the falling rocks; then rocks fall on the loft itself at
+ *      (14,4) drops you 2.0 into the Undercroft (S3, y 3). Its landing (14,4) is
+ *      sunk 0.5 below the corridor (steps (14,3)), so the lip above it is 2.0 and
+ *      cannot be climbed: the loop is one-way, east to a climb (21,3) -> (22,3)
+ *      back beside the plate - it never skips the gallery. Beyond the gate, the
+ *      Clockwork Room (9..12, 3..7), the clockmaker's daybook (11,3): a cracked
+ *      ceiling flag over (9,5). Jump straight up under it, step back, then climb
+ *      west through the hole onto the Clockmaker's Loft (8,5), S5. This is the
+ *      only way on (verify.js models the knock).
+ *  S5 the Loft: gears in its walls; west past the clockmaker's last words (7,5)
+ *      to his bones (6,5), then south along x 6. A rockfall niche with a skeleton
+ *      at (5,10) shows the falling rocks; then rocks fall on the loft itself at
  *      (6,12) and (6,14) (dust first; wait at (6,13)); east along y 15, climb
- *      (12,15) -> (12,14).
+ *      (12,15) -> (12,14). A secret door (11,14) opens on a stair down to a
+ *      dead-end closet with the great potion (12,11) S4.
  *  5.4 The Seal (S6): south balcony (12..16, 14), brazier (12,14). The bridge
- *      (16, 13..9), one tile wide, rocks falling on (16,12) and (16,10), leads
- *      to the column top (15..16, 7..8) and the Seal. Taking it crumbles the
- *      bridge behind you (script sealTaken: the tiles are dormant loose floors
- *      until then). Onward east over the three bobbing stones (standing jumps
- *      over 1-cell gaps, hold C to stop on a 1x1 stone) to the East Landing
- *      (23,7), brazier. A fall from here kills; the balcony brazier restores the
- *      bridge and the Seal.
+ *      (16, 13..9), one tile wide, rocks falling on (16,12) and (16,10), leads to
+ *      the column top (15..16, 7..8). Its brazier (16,8) lights as you step on,
+ *      always before you reach the Seal (at the column's centre, with the Vizier's
+ *      letter beside it at (15,8)): a respawn there puts back the bridge and the
+ *      Seal, and as the Seal is within reach of the brazier you take it again at
+ *      once and the bridge falls again - never a half-fallen bridge in a snapshot.
+ *      Taking the Seal (trigger, script sealTaken) sends g.crumble through the
+ *      bridge from the column outward: its tiles are loose { armed: false }, solid
+ *      until then (the solver treats them as floor). Onward east over the three
+ *      bobbing stones (a trigger at (16,7) says how: hold C, standing jumps over
+ *      1-cell gaps, stop on each 1x1 stone) to the East Landing (23,7), brazier.
+ *      A fall from the bridge or the stones kills.
  *  5.5 The Dart Stair: a straight stair (25, 8..19), S6 -> S8, south = up.
  *      A boulder rolls down every 6 s from a niche (26,19) into a chute (26,7)
- *      beside the foot - watch it go by from the passage (24,7), then climb.
- *      Torch-lit alcoves every 3 steps (26,10) (26,13) (26,16). At the top turn
- *      west: two dart slots fire across (22,20) and (21,20) alternately.
- *  5.6 The Roof (S8): the Seal opens the door (19,20) onto the stars. The south
- *      terrace (14..18, 16..20) is walled from the hatch and joins the ring at
- *      its SW corner (13,15), so the hatch is always a drop to the side: walk
- *      the ring, look straight down the whole climb, and go round to the north
- *      terrace and the way out (16..17, 2).
+ *      beside the foot (rubble in it) - watch it go by from the passage (24,7),
+ *      then climb; a torch at the foot (25,8) shows the turn south. Torch-lit
+ *      alcoves every 3 steps (26,10) (26,13) (26,16). At the top a potion (23,20),
+ *      then turn west: two dart slots fire across (22,20) and (21,20) alternately.
+ *  5.6 The Roof (S8): the Seal opens the door (19,20) onto the roof at dawn. The
+ *      south terrace (14..18, 16..20) is walled from the hatch and joins the ring
+ *      at its SW corner (13,15) (brazier at the neck (13,16)), so the hatch is
+ *      always a drop to the side: walk the ring, look straight down the whole
+ *      climb, and go round to the north terrace and the way out (16..17, 2).
  *
  * ROUTE: hall -> atrium -> plinth -> west arc N -> north arc E -> east arc ->
  * slicer -> east stair -> plate -> gallery W -> gate -> room -> knock the flag ->
  * loft -> balcony -> bridge -> Seal -> stones E -> east landing -> dart stair S ->
- * darts W -> Seal door -> roof -> hatch -> exit N.  About 2 minutes for a player
- * who knows it (waits included); 3 or more on a careful first run.
+ * darts W -> Seal door -> roof -> hatch -> exit N.  verify.js: about 41 s of
+ * optimal play; about 2 minutes for a player who knows it (waits included); 3 or
+ * more on a careful first run.
  *
  * Braziers: plinth (13,12) S1, slicer door (25,8) S2, stair top (22,3) S4,
- * balcony (12,14) S6, east landing (23,7) S6. Gems: (22,12) S0, (14,14) S2,
- * (17,3) S3, (26,13) S7. Potions: (23,12) S2, (12,6) S4, (10,15) S5; great
- * potion (12,11) S4 behind the secret door.
+ * balcony (12,14) S6, column top (16,8) S6, east landing (23,7) S6, terrace neck
+ * (13,16) S8. Gems: (22,12) S0, (14,14) S2, (17,3) S3, (26,13) S7. Potions:
+ * (23,12) S2, (12,6) S4, (10,15) S5, (23,20) S8; great potion (12,11) S4 behind
+ * the secret door (11,14) in the loft.
  *
- * NOTE for tools/verify.js: the solver has no "knock a ceiling flag down" move,
- * so it reaches the loft through the secret stair (without the secret doors it
- * cannot); the intended move was proven with the real Game at 120 Hz when the
- * level was authored (jump straight up at (9,5), step back, climb west).
- * The dart-stair steps are campaign '1'..'5' (light 13); alcove torches light it.
+ * NOTE for tools/replay.js: the boulder reaches every cell of the dart stair, so
+ * its whole climb (23,7) -> (23,20) is one 17-cell hazard corridor, beyond the
+ * planner's 1000-trial budget (a replay limit, not a level fault). It is proven
+ * with the real Game at 120 Hz: from the passage (24,7) or an alcove, go up to
+ * the next alcove only when the boulder will not be on that stretch while you
+ * are - unhurt from every start moment, running or walking (climbing blind is
+ * hit every time). The stones are bobbing floors (not replayed).
  */
 (function (R) {
   'use strict';
@@ -167,8 +190,16 @@
     },
   });
 
-  const TEETH = { tpl: 'spikesUp', spriteOn: 'TOWER_TEETH', msg: 'Impaled on the teeth!' };
+  // drawn 1.25x: the pointed tips stand just above the trough's rim, so a runner sees them coming
+  const TEETH = { tpl: 'spikesUp', spriteOn: 'TOWER_TEETH', scale: 1.25, msg: 'Impaled on the teeth!' };
   const CAP_HIGH = { fl: 0.5, cl: 1.5, sky: true, ftex: 'TOWER_ROOF', low: 'SANDSTONE', light: 18 };
+
+  // ------------------------------------------------------------------ entity specs for `ents` ({ x, y, z: floor, ...spec })
+  const deco = (sprite, extra) => Object.assign({ type: 'deco', sprite }, extra || {});
+  /** A torch on a wall: `z` of an ents entry is the floor, so its height is given as zAbs. */
+  const torch = (x, y, z, dx = 0, dy = 0) => ({ x, y, z, type: 'deco', sprite: 'TORCH', radius: 0.1, dx, dy, zAbs: z + 0.55 });
+  const note = (title, text, extra) => Object.assign({ type: 'note', title, text }, extra || {});
+  const rock = phase => ({ tpl: 'rock', phase });
 
   R.defineLevel({
     id: 'tower', order: 5,
@@ -176,75 +207,55 @@
     subtitle: 'Up through the atrium to the roof, before the last grain falls.',
     width: 30, height: 22,
     music: 'tower',
-    startMessage: "The Vizier's Tower. His Seal waits high in the atrium, and the roof is open to the stars. Climb!",
+    sky: 'DAWN',                     // the roof at daybreak: domes and minarets above the terrace walls
+    falloff: 0.6,                    // the atrium's far walls and upper storeys read from its floor
+    startMessage: "The Vizier's Tower. His Seal waits high in the atrium, and above the roof the sky is already paling. Climb!",
     legend: {
       '@': { base: 'h', start: 'N' },
       'h': { base: ',', ftex: 'PALACE_TILE', light: 16, label: "The Vizier's Tower" },
-      'A': { base: '.', ftex: 'TOWER_MOSAIC', light: 22, label: 'The Atrium' },
+      'A': { base: '.', ftex: 'TOWER_MOSAIC', light: 19, label: 'The Atrium' },
       'c': { base: '.', cl: 1.9, ftex: 'PALACE_TILE', light: 17, label: 'The Atrium' },
-      'r': { base: 'c', ent: { type: 'deco', sprite: 'RUBBLE' } },
-      's': { base: 'A', ent: { type: 'deco', sprite: 'SKELETON' } },
-      'n': HG.note('CARVED OVER THE DOOR', 'The tower of Qasim the Vizier.\n\nHis Seal opens the roof.'),
       'U': { solid: true, wall: 'TOWER_COLUMN' },
+      'H': { base: 'A', fl: 0.5, low: 'TOWER_COLUMN' },           // S1: the top of the great hourglass's stand, 2.0 up
       'z': { solid: true, wall: 'TOWER_BAND' },
       'Z': { solid: true, wall: 'TOWER_GEARS' },
       '`': { base: '_', ctex: 'SANDSTONE_DARK', up: 'TOWER_COLUMN' },
       '*': { base: '_', sky: true },
       'p': { base: '.', cl: 2.75, low: 'SANDSTONE', light: 20, ent: [{ type: 'checkpoint' }, { type: 'deco', sprite: 'TORCH', z: 0.55, radius: 0.1, dx: -0.42 }] },
       'g': { base: '.', ftex: 'SAND_FLOOR', light: 16, label: 'The Ring of Teeth' },
-      'j': { base: 'g', light: 20, ent: { type: 'deco', sprite: 'TORCH', z: 0.55, radius: 0.1 } },
       't': { base: 'g', fl: -1.0, cl: 1.25, ftex: 'DUNGEON_FLOOR', low: 'DUNGEON_WALL', light: 18, ent: TEETH },
-      'I': { base: 't', ent: [TEETH, { type: 'deco', sprite: 'SKULL', dx: 0.28, dy: 0.25 }] },
       'f': { base: 'g', loose: {}, ftex: 'LOOSE_FLAT' },
-      'a': HG.note('THE RING OF TEETH', 'Walk up to the teeth carefully (hold C), then jump from a standstill.\n\nThe flag beyond is cracked. Land and keep walking - never stop on it.', { dx: -0.36 }),
       'e': { base: '.', ftex: 'PALACE_TILE', light: 15, label: 'The Slicer Door' },
       'l': { base: '.', light: 13, label: 'The Undercroft' },
       'u': { base: 'l', cl: 2.75, label: null },
+      'v': { base: 'l', fl: -0.5 },                               // the landing under the hole: 2.0 below the gallery, too high to climb back
+      'i': { base: 'l', fl: -0.25 },                              // a step up out of that landing
       'k': { base: '.', ftex: 'PALACE_TILE', light: 16 },
       'y': { base: '.', ftex: 'PALACE_TILE', light: 18, label: 'The Clockwork Gallery' },
-      '?': { base: 'y', ent: { type: 'deco', sprite: 'TOWER_SANDGLASS', dy: 0.36 } },
       '=': HG.plate({ opens: 'clock', hold: 12, msg: 'Click! Far down the gallery the portcullis rises.' }, { light: 18, label: 'The Clockwork Gallery' }),
       '|': HG.gate('clock', { light: 21, door: { msg: 'A portcullis. The plate at the far end of the gallery raises it.' } }),
-      '}': { base: 'y', light: 21, ent: { type: 'deco', sprite: 'TORCH', z: 0.55, radius: 0.1, dy: -0.42 } },
       'K': { base: 'y', ctex: 'CRUSHER', up: 'CRUSHER', anim: { type: 'crusher', period: 3.6, phase: 0 } },
       'J': { base: 'y', ctex: 'CRUSHER', up: 'CRUSHER', anim: { type: 'crusher', period: 3.6, phase: 11 / 12 } }, // 0.3 s after the first
-      'w': { base: 'y', ent: { tpl: 'pendulum', axis: 'y', amp: 1.2, period: 2.4, phase: 0 } },
       'R': { base: '.', ftex: 'PALACE_TILE', light: 17, label: 'The Clockwork Room' },
       'X': { base: 'R', ctex: 'LOOSE_FLAT' },
-      '(': { base: 'R', label: null, door: { secret: true, tex: 'TOWER_GEARS' } },
-      ']': { base: '3', ent: { type: 'item', item: 'bigpotion' } },
-      'S': HG.ent({ type: 'deco', sprite: 'CLOCK', solid: true, radius: 0.3 }),
-      'Y': HG.note('SCRATCHED ON THE WALL', 'The ceiling is cracked.\n\nStand under it and jump straight up (SPACE, no arrow), then step back.'),
       'm': { base: '.', light: 14, label: "The Clockmaker's Loft" },
-      'M': { base: 'e', ent: [{ type: 'deco', sprite: 'SKELETON', dx: -0.2 }, { type: 'deco', sprite: 'SKULL', dx: 0.3, dy: 0.25 }] },
-      'W': { base: 'm', ent: [{ tpl: 'rock', phase: 0 }, { type: 'deco', sprite: 'SKELETON' }] },
-      'i': { base: 'm', ent: { tpl: 'rock', phase: 0.5 } },
       ')': { base: 'm', label: null, door: { secret: true, tex: 'SANDSTONE' } },
-      'b': { base: '.', ftex: 'CARPET_PERSIAN', light: 18, label: 'The Seal Bridge', enter: 'hush' },
-      'd': { base: '.', loose: { delay: 0.45 }, tag: 'sealbridge', ftex: 'SAND_FLOOR', light: 20, label: 'The Seal Bridge', enter: 'hush' },
-      'D': { base: 'd', loose: { delay: 0.45 }, ent: { tpl: 'rock', phase: 0 } },
-      'H': { base: 'd', loose: { delay: 0.45 }, ent: { tpl: 'rock', phase: 0.5 } },
-      'V': { base: '.', ftex: 'PALACE_TILE', light: 22, label: "The Vizier's Seal", enter: 'hush' },
-      'v': { base: 'V', ent: [
-        { type: 'item', item: 'seal', dx: 0.5, dy: 0.5 },
-        { type: 'trigger', script: 'sealTaken', once: false, radius: 0.5, dx: 0.5, dy: 0.5 },
-      ] },
-      '6': { base: '.', ftex: 'PALACE_TILE', low: 'TOWER_COLUMN', light: 22, label: 'The Floating Stones', anim: { type: 'bob', period: 4.8, phase: 0, amp: 0.8 } },
+      'b': { base: '.', ftex: 'CARPET_PERSIAN', light: 18, label: 'The Seal Bridge' },
+      'd': { base: '.', loose: { armed: false, delay: 0.45 }, tag: 'sealbridge', ftex: 'SAND_FLOOR', light: 20, label: 'The Seal Bridge' },
+      'V': { base: '.', ftex: 'PALACE_TILE', light: 20, label: "The Vizier's Seal" },
+      '6': { base: '.', ftex: 'PALACE_TILE', low: 'TOWER_COLUMN', light: 19, label: 'The Floating Stones', anim: { type: 'bob', period: 4.8, phase: 0, amp: 0.8 } },
       '7': { base: '6', anim: { type: 'bob', period: 4.8, phase: 0.25, amp: 0.8 } },
       '8': { base: '6', anim: { type: 'bob', period: 4.8, phase: 0.5, amp: 0.8 } },
       'N': { base: ',', ftex: 'CARPET_PERSIAN', light: 20, label: 'The East Landing', ent: { type: 'checkpoint' } },
       'q': { base: '.', light: 16, label: 'The Dart Stair' },
-      '0': { base: 'q', light: 4 },
+      '0': { base: 'q', light: 8 },                               // the boulder's niche and chute: dim, not black
       '[': { base: '3', light: 21, ent: { type: 'deco', sprite: 'TORCH', z: 0.55, radius: 0.1, dx: -0.48 } },
       '{': { base: 'q', light: 21, ent: [{ type: 'deco', sprite: 'TORCH', z: 0.55, radius: 0.1, dx: -0.48 }, { type: 'item', item: 'gem', dx: 0.25 }] },
-      'F': { fl: 0, cl: 3, sky: true, ftex: 'TOWER_ROOF', low: 'SANDSTONE', light: 22, label: 'Under the Stars' },
+      'F': { fl: 0, cl: 3, sky: true, ftex: 'TOWER_ROOF', low: 'SANDSTONE', light: 19, label: 'The Roof at Dawn' },
       '-': { fl: 2.0, cl: 3, sky: true, ftex: 'TOWER_ROOF', low: 'SANDSTONE', light: 18 },
       '"': { base: '-', low: 'DART_SLOTS' },
       '$': { base: 'F', exit: true, ftex: 'EXIT_FLAT', label: 'The Way Out' },
-      '<': { base: 'q', ent: { tpl: 'darts', dir: 'S', phase: 0 } },
-      '>': { base: 'q', ent: { tpl: 'darts', dir: 'S', phase: 0.5 } },
-      '/': HG.keyDoor('seal', { door: { tex: 'TOWER_SEALDOOR', openMsg: 'The Seal fits the crest. The door swings open - onto the stars!', msg: "A great door, sealed with the Vizier's crest. It wants his Seal." } }),
-      '9': { base: 'q', light: 4, ent: { tpl: 'boulder', path: [[0, 0], [-1, 0], [-1, -12], [0, -12]], speed: 14 / 6 } },
+      '/': HG.keyDoor('seal', { door: { tex: 'TOWER_SEALDOOR', openMsg: 'The Seal fits the crest. The door swings open - onto the roof, and the first grey of dawn!', msg: "A great door, sealed with the Vizier's crest. It wants his Seal." } }),
     },
     layers: [
       { z: 0, map: [ // S0
@@ -258,14 +269,14 @@
         ' %%%%%%%%%%%%cAUUAAAAAAc%%%%% ', // 7
         ' %%%%%%%%%%%%cAUUAAAAAAc%%%%% ', // 8
         ' %%%%%%%%%%%%cAAAAAAAAAc%%%%% ', // 9
-        ' %%%%%%%%%%%%cAAAAAAAAAc%%%%% ', // 10
+        ' %%%%%%%%%%%%cAAAAUAAAAc%%%%% ', // 10  the hourglass stand (18,10)
         ' %%%%%%%%%%%%cAAAAAAAAAc%%%%% ', // 11
-        ' %%%%%%%%%%%%%AAAsAAAAGc%%%%% ', // 12
+        ' %%%%%%%%%%%%%AAAAAAAAGc%%%%% ', // 12
         ' %%%%%%%%%%%%cAAAAAAAAAc%%%%% ', // 13
-        ' %%%%%%%%%%%%TcrrrrccrcT%%%%% ', // 14
+        ' %%%%%%%%%%%%TcccccccccT%%%%% ', // 14
         ' %%%%%%%%%%%%%%%%%%hh%%%%%%%% ', // 15
         ' %%%%%%%%%%%%%%%%%%hh%%%%%%%% ', // 16
-        ' %%%%%%%%%%%%%%%%%%@n%%%%%%%% ', // 17
+        ' %%%%%%%%%%%%%%%%%%@h%%%%%%%% ', // 17
         ' %%%%%%%%%%%%%%%%%%TT%%%%%%%% ', // 18
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 19
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 20
@@ -282,7 +293,7 @@
         ' %%%%%%%%%%%%#_UU______z%%%%% ', // 7
         ' %%%%%%%%%%%#z_UU______z%%%%% ', // 8
         ' %%%%%%%%%%%%#_________z%%%%% ', // 9
-        ' %%%%%%%%%%%%z_________z%%%%% ', // 10
+        ' %%%%%%%%%%%%z____H____z%%%%% ', // 10
         ' %%%%%%%%%%%%z_________z%%%%% ', // 11
         ' %%%%%%%%%%%%p_________z%%%%% ', // 12
         ' %%%%%%%%%%%%z_________z%%%%% ', // 13
@@ -301,13 +312,13 @@
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 2
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%5 ', // 3
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%4 ', // 4
-        ' %%%%%%%%%%%%jggtfggtfgj%%%%3 ', // 5
+        ' %%%%%%%%%%%%gggtfggtfgg%%%%3 ', // 5
         ' %%%%%%%%%%%%g_________g%%%%2 ', // 6
         ' %%%%%%%%%%%%f_UU______g%%%%1 ', // 7
-        ' %%%%%%%%%%%%I_UU______jeCMxe ', // 8
+        ' %%%%%%%%%%%%t_UU______geCexe ', // 8
         ' %%%%%%%%%%%%g_________g%%%%% ', // 9
-        ' %%%%%%%%%%%%a_________g%%%%% ', // 10
-        ' %%%%%%%%%%%%j_________g%%%%% ', // 11
+        ' %%%%%%%%%%%%g_________g%%%%% ', // 10
+        ' %%%%%%%%%%%%g_________g%%%%% ', // 11
         ' %%%%%%%%%%%%%_________P%%%%% ', // 12
         ' %%%%%%%%%%%%g_________g%%%%% ', // 13
         ' %%%%%%%%%%%%gG_______gg%%%%% ', // 14
@@ -323,8 +334,8 @@
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 0
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 1
         ' %%%%%%%%%%%%%%%%%%%%%%54321l ', // 2
-        ' %%%%%%%%%%%%%lllGlllu%%%%%%% ', // 3
-        ' %%%%%%%%%%%%%l%%%%%%%%%%%%%% ', // 4
+        ' %%%%%%%%%%%%%illGlllu%%%%%%% ', // 3
+        ' %%%%%%%%%%%%%v%%%%%%%%%%%%%% ', // 4
         ' %%%%%%%%%%%%zzzzzzzzzzz%%%%% ', // 5
         ' %%%%%%%%%%%%z_________z%%%%% ', // 6
         ' %%%%%%%%%%%%z_UU______z%%%%% ', // 7
@@ -347,15 +358,15 @@
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 0
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 1
         ' %%%%%%%ZZZZZ%%%%%%%%%k%%%%%% ', // 2
-        ' %%%%%%%ZSRRT%%%%%%%%%C%%%%%% ', // 3
+        ' %%%%%%%ZRRRR%%%%%%%%%C%%%%%% ', // 3
         ' %%%%%%%ZRRRR%_%%%%%%%k%%%%%% ', // 4
-        ' %%%%%%%ZXRRR|?w}JyKy}=?%%%%% ', // 5
+        ' %%%%%%%ZXRRR|yyyJyKyy=y%%%%% ', // 5
         ' %%%%%%%ZRRRP%_________%%%%%% ', // 6
-        ' %%%%%%%ZRYRT%_UU______%%%%%% ', // 7
-        ' %%%%%%%ZZZ(Z%_UU______%%%%%% ', // 8
+        ' %%%%%%%ZRRRR%_UU______%%%%%% ', // 7
+        ' %%%%%%%ZZZZZ%_UU______%%%%%% ', // 8
         ' %%%%%%%%%%1%%_________%%%%%% ', // 9
         ' %%%%%%%%%%2%%_________%%%%%% ', // 10
-        ' %%%%%%%%%%3]%_________%%%%%% ', // 11
+        ' %%%%%%%%%%33%_________%%%%%% ', // 11
         ' %%%%%%%%%%4%%_________%%%%%% ', // 12
         ' %%%%%%%%%%5%%_________%%%%%% ', // 13
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 14
@@ -372,18 +383,18 @@
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 1
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 2
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 3
-        ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 4
-        ' %%%%%mmmo%%%zzzzzzzzzzz%%%%% ', // 5
-        ' %%%%%m%%%%%%z_________z%%%%% ', // 6
-        ' %%%%%T%%%%%%z_UU_`_`_`z%%%%% ', // 7
+        ' %%%%%ZZZ%%%%%%%%%%%%%%%%%%%% ', // 4
+        ' %%%%ZmmmoZ%%zzzzzzzzzzz%%%%% ', // 5
+        ' %%%%Zm%%%%%%z_________z%%%%% ', // 6
+        ' %%%%%m%%%%%%z_UU_`_`_`z%%%%% ', // 7
         ' %%%%%m%%%%%%z_UU______z%%%%% ', // 8
         ' %%%%%m%%%%%%z_________z%%%%% ', // 9
-        ' %%%%Wm%%%%%%z_________z%%%%% ', // 10
+        ' %%%%mm%%%%%%z_________z%%%%% ', // 10
         ' %%%%%m%%%%%%z_________z%%%%% ', // 11
-        ' %%%%%i%%%%%%z_________z%%%%% ', // 12
+        ' %%%%%m%%%%%%z_________z%%%%% ', // 12
         ' %%%%%m%%%%%%z_________z%%%%% ', // 13
-        ' %%%%%i%%%%)%zzzzzzzzzzz%%%%% ', // 14
-        ' %%%%%mmmmPTu%%%%%%%%%%%%%%%% ', // 15
+        ' %%%%%m%%%%)%zzzzzzzzzzz%%%%% ', // 14
+        ' %%%%%mmmmPmu%%%%%%%%%%%%%%%% ', // 15
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 16
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 17
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 18
@@ -399,12 +410,12 @@
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 4
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 5
         ' %%%%%%%%%%%%%_________%%%%%% ', // 6
-        ' %%%%%%%%%%%%%_vV_6_7_8Nqq0%% ', // 7
+        ' %%%%%%%%%%%%%_VV_6_7_8Nqq0%% ', // 7
         ' %%%%%%%%%%%%%_VV______%%1%%% ', // 8
         ' %%%%%%%%%%%%%__d______%%2%%% ', // 9
-        ' %%%%%%%%%%%%%__H______%%3[%% ', // 10
+        ' %%%%%%%%%%%%%__d______%%3[%% ', // 10
         ' %%%%%%%%%%%%%__d______%%4%%% ', // 11
-        ' %%%%%%%%%%%%%__D______%%5%%% ', // 12
+        ' %%%%%%%%%%%%%__d______%%5%%% ', // 12
         ' %%%%%%%%%%%%%__d______%%%%%% ', // 13
         ' %%%%%%%%%%%Cbbbb%%%%%%%%%%%% ', // 14
         ' %%%%%%%%%%%%%%%%%%%%%%%%%%%% ', // 15
@@ -459,8 +470,8 @@
         '-------------FFFFFF-----------', // 16
         '--------------FFFFF-----------', // 17
         '--------------FFFFF-----------', // 18
-        '--------------FFFFF--""--q9---', // 19
-        '--------------FFFFF/q><qqq----', // 20
+        '--------------FFFFF--""--q0---', // 19
+        '--------------FFFFF/qqqqqq----', // 20
         '------------------------------', // 21
       ] },
       { z: 13.5, legend: { '-': CAP_HIGH }, map: [ // caps
@@ -488,25 +499,77 @@
         '                              ', // 21
       ] },
     ],
+    ents: [
+      // 5.1 the hall and the atrium (S0)
+      { x: 20, y: 17, z: 0, ...note('CARVED OVER THE DOOR', 'The tower of Qasim the Vizier.\n\nHis Seal opens the roof.') },
+      { x: 18, y: 10, z: 2, ...deco('HOURGLASS_GREAT', { scale: 2 }) },         // the Vizier's great hourglass, on its stand
+      { x: 17, y: 12, z: 0, ...deco('SKELETON') },
+      ...[15, 16, 17, 18, 21].map(x => ({ x, y: 14, z: 0, ...deco('RUBBLE') })),   // under the fallen south arcade
+      // 5.2 the Ring of Teeth (S2)
+      torch(13, 11, 3, -0.42, 0),                                                // where you climb onto the arcade
+      { x: 13, y: 10, z: 3, ...note('THE RING OF TEETH', 'Walk up to the teeth carefully (hold C), then jump from a standstill.\n\nThe flag beyond is cracked. Land and keep walking - never stop on it.', { dx: -0.36 }) },
+      { x: 13, y: 8, z: 2, ...deco('SKULL', { dx: 0.28, dy: 0.25 }) },          // in the first trough
+      torch(13, 5, 3, 0, -0.42),
+      torch(23, 5, 3, 0.42, 0),
+      torch(23, 7, 3, 0.42, 0),                                                  // beside the slicer door
+      { x: 26, y: 8, z: 3, ...deco('SKELETON', { dx: -0.2 }) },                 // the thief the jaws cut in two
+      { x: 26, y: 8, z: 3, ...deco('SKULL', { dx: 0.3, dy: 0.25 }) },
+      // 5.3 the Clockwork Gallery, the Clockwork Room (S4)
+      { x: 23, y: 5, z: 6, ...deco('TOWER_SANDGLASS', { dy: 0.36 }) },          // beside the plate
+      torch(21, 5, 6, 0, -0.42),
+      torch(16, 5, 6, 0, -0.42),
+      { x: 15, y: 5, z: 6, tpl: 'pendulum', axis: 'y', amp: 1.2, period: 2.4, phase: 0 },
+      { x: 14, y: 5, z: 6, ...deco('TOWER_SANDGLASS', { dy: 0.36 }) },          // beside the gate
+      { x: 9, y: 3, z: 6, ...deco('CLOCK', { solid: true, radius: 0.1, dy: -0.3 }) }, // against the north wall
+      torch(12, 3, 6, 0.42, 0),
+      torch(12, 7, 6, 0.42, 0),
+      { x: 11, y: 3, z: 6, ...note("THE CLOCKMAKER'S DAYBOOK", "The great hourglass is finished. The Vizier asked for one night exactly: dusk to dawn, not a grain more.\n\nTonight he turned it himself, and smiled. 'When the last grain falls,' he said, 'the Sultan will be thirsty.'\n\nI did not ask what he meant.", { dy: -0.36 }) },
+      { x: 10, y: 7, z: 6, ...note('SCRATCHED ON THE WALL', 'The ceiling is cracked.\n\nStand under it and jump straight up (SPACE, no arrow), then step back.\n\nWhen it has fallen, face west under the hole and climb (SPACE).') },
+      { x: 12, y: 11, z: 6.75, type: 'item', item: 'bigpotion' },              // the secret closet, down from the loft
+      // S5 the Clockmaker's Loft
+      { x: 6, y: 5, z: 7.5, ...deco('SKELETON_SITTING', { dx: -0.25, dy: -0.25 }) },
+      { x: 7, y: 5, z: 7.5, ...note('SCRATCHED BESIDE THE BONES', 'He walled me in up here, so that I could never tell what his hourglass counts.\n\nDawn. The Sultan\'s cup.\n\nIf you can read this, you are quicker than I was. Run.', { dy: -0.3 }) },
+      torch(6, 7, 7.5, -0.42, 0),
+      { x: 5, y: 10, z: 7.5, ...rock(0) },                                       // the niche: it shows the rocks first
+      { x: 5, y: 10, z: 7.5, ...deco('SKELETON') },
+      { x: 6, y: 12, z: 7.5, ...rock(0.5) },
+      { x: 6, y: 14, z: 7.5, ...rock(0.5) },
+      torch(11, 15, 7.5, 0, 0.42),                                               // beside the secret door (11,14)
+      // 5.4 the Seal bridge, the Seal, the stones (S6)
+      { x: 16, y: 12, z: 9, ...rock(0) },
+      { x: 16, y: 10, z: 9, ...rock(0.5) },
+      // the brazier reaches onto the last bridge tile, so it is always lit before the Seal is taken; the Seal
+      // (at the centre of the column top) reaches every path across it, and the brazier (you respawn there
+      // and take it again); the trigger reaches a hair further than the Seal
+      { x: 16, y: 8, z: 9, type: 'checkpoint', dx: 0.2, radius: 0.8 },
+      { x: 15, y: 7, z: 9, type: 'item', item: 'seal', dx: 0.5, dy: 0.5, radius: 0.7 },
+      { x: 15, y: 7, z: 9, type: 'trigger', script: 'sealTaken', once: false, radius: 0.75, dx: 0.5, dy: 0.5 },
+      { x: 15, y: 8, z: 9, ...note('A LETTER UNDER THE SEAL', 'Cupbearer - at first light the Sultan will ask for his cup. Pour it from the second vial; the first was stolen by a bazaar thief, and he hangs at dawn.\n\nBring me word on the roof. My Seal opens the door.\n\n- Q.', { dx: 0.1 }) },
+      { x: 16, y: 7, z: 9, type: 'trigger', radius: 0.3, time: 7, text: 'The stones: hold C and walk to the edge. Jump with C still held - you land and stay on the stone.' },
+      // 5.5 the dart stair
+      { x: 26, y: 7, z: 9, ...deco('RUBBLE') },                                  // where the boulder ends
+      torch(25, 8, 9.25, 0.3, -0.35),                                            // the turn south, seen from the landing
+      { x: 26, y: 19, z: 12, tpl: 'boulder', path: [[0, 0], [-1, 0], [-1, -12], [0, -12]], speed: 14 / 6 },
+      { x: 23, y: 20, z: 12, type: 'item', item: 'potion' },                    // after the boulder, before the darts
+      { x: 22, y: 20, z: 12, tpl: 'darts', dir: 'S', phase: 0 },
+      { x: 21, y: 20, z: 12, tpl: 'darts', dir: 'S', phase: 0.5 },
+      // 5.6 the roof
+      { x: 13, y: 16, z: 12, type: 'checkpoint', radius: 0.8 },                 // the terrace's neck: before the ring round the hatch
+    ],
     scripts: {
-      /** Until the Seal is taken, the cracked bridge holds: its loose tiles are 'dormant'
-       *  (game.js triggerLoose only shakes 'idle' tiles). Runs on entering the balcony,
-       *  bridge and column top, so it also holds after a respawn at the balcony brazier. */
-      hush(g) {
-        if (g.flags.crumbled) return;
-        for (const s of g.spansTagged('sealbridge')) if (s.loose && s.loose.state === 'idle') s.loose.state = 'dormant';
-      },
-      /** Taking the Seal: the bridge behind you crumbles, from the pedestal outward. */
+      /** Taking the Seal (a trigger on it, `once: false`: it reaches a hair further than the
+       *  Seal, so it runs again just after the pickup): the bridge behind you crumbles, from the
+       *  column outward. Its tiles are loose { armed: false }, solid until g.crumble wakes them.
+       *  The column-top brazier was lit before the Seal was taken, so a respawn there puts back
+       *  the bridge and the Seal; you respawn within the Seal's reach and take it again, and
+       *  the bridge crumbles again. */
       sealTaken(g) {
         if (!g.has('seal') || g.flags.crumbled) return;
         g.flag('crumbled', true);
-        g.msg('The Seal is yours - and the tower shudders! The bridge behind you is crumbling. East over the floating stones: hold C as you jump.', 7);
+        g.msg('The Seal is yours - and the tower shudders! The bridge behind you is crumbling. East, over the floating stones!', 7);
         g.shake(0.8);
         g.sound('rumble');
-        const tiles = g.spansTagged('sealbridge').slice().sort((a, b) => a.cell.y - b.cell.y);
-        tiles.forEach((s, i) => g.after(0.3 + i * 0.35, () => {
-          if (s.loose && (s.loose.state === 'dormant' || s.loose.state === 'idle')) { s.loose.state = 'idle'; g.triggerLoose(s); }
-        }));
+        g.crumble('sealbridge', 16.5, 8.5, 3, 0.45);
       },
     },
   });

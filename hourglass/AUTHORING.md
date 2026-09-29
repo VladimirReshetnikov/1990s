@@ -39,11 +39,13 @@ console.
     legend: { /* level characters; must not shadow campaign characters */ },
     layers: [
       { z: 0,   map: [ /* height rows of width chars */ ] },
-      { z: 1.5, map: [ ... ], legend: { /* characters for this layer only */ }, defaults: { light: 18 } },
+      { z: 1.5, map: [ ... ], legend: { /* characters for this layer only */ }, defaults: { light: 18 }, lightMin: 16 },
     ],                                       // z is a multiple of 1.5 (a storey); `defaults` apply to every template of the layer
+                                             // that doesn't set the field itself; `lightMin` raises every span of the layer to at least that light
     ents: [                                  // entities placed by coordinate (saves legend characters)
       { x: 12, y: 5, z: 1.5, tpl: 'darts', dir: 'W' },     // z = height of the floor it stands on
       { x: 3, y: 9, z: 0, type: 'deco', sprite: 'SKELETON_SITTING', dx: -0.3 },
+      { x: 7, y: 2, z: 1.5, type: 'deco', sprite: 'TORCH', above: 0.55 },  // `above`: height over that floor
     ],
     scripts: { name(g, ctx) { ... } },        // for plate/lever/door/enter/use/trigger `script`
     onStart: 'name',                         // optional script at level start
@@ -155,11 +157,19 @@ used, on rock), and:
 | `patrol`, `orbit`, `trap` | see engine/entities.js |
 | `item` | `item` |
 | `note` | `title`, `text` |
-| `trigger` | `text`, `script`, `once`, `radius` |
-| `checkpoint` (`C`) | brazier: lighting it snapshots the world for respawns; `radius` (0.5) |
+| `item` (drinks and pickups) | `script` runs when it is taken |
+| `trigger` | `text`, `script`, `once`, `radius`; conditions `needs: 'seal'`, `unless: 'seal'`, `flag: 'name'` (fires only while they hold) |
+| `checkpoint` (`C`) | brazier: lighting it snapshots the world for respawns; `radius` (0.5), `face: 'N'|'E'|'S'|'W'` (respawn heading) |
 | `deco` | `sprite`, `z` (above its floor), `zAbs` (absolute height: a torch high on a chasm wall), `scale`, `solid`, `radius`, `height` |
 
-Any entity takes `scale` (sprite size) and `dx`/`dy` (nudge within the cell).
+Any entity takes `scale` (sprite size) and `dx`/`dy` (nudge within the cell);
+things that never move (decos, items, notes, braziers) take their floor from
+the cell they were placed in, even when nudged past a lip.
+
+Notes: a pit (`_`) merges into the span below it and takes that span's light
+(its own `light` is not kept). `onStart` runs when the level starts, not on a
+respawn. Rubble falling into lava sinks with a hiss. A checkpoint rebuilds the
+world from the event log silently (no plate messages or scripts run twice).
 
 Every period is a multiple of the 0.6 s beat. A `phase` is a fraction of the
 period; choose phases so neighbouring hazards are offset by multiples of 0.3 s

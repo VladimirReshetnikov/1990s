@@ -11,7 +11,7 @@
  * STOREYS (layer z)
  *   S0 0.0  the lava lake (surface -0.5), the casting floor, the bellows, the foot of lift A
  *   S1 1.5  the shelf below the catwalk, the island (plaza, hammer house, anvil yard),
- *           the silver door and the foot of the Vizier's lift
+ *           the silver door, the Vizier's chamber and the foot of his lift
  *   S2 3.0  the cooled slag pit; the crucible on the hammer house roof (molten, at 3.5)
  *   S3 4.5  the start, the catwalk, the balcony and lift B, the east gallery, the slag
  *           pools, the foot of the ore chute
@@ -19,50 +19,63 @@
  *   S5 7.5  the exit. The cavern roof is at 8.75.
  *
  * SET-PIECES (cell x, y)
- *   4.1 The Glow. Start in the Forge Gate (5,12) S3. A barred window (7,11) looks into
- *       the ore chute's hopper: boulders rumble down and drop into it (4.5, shown first).
- *       The catwalk (13..18, 12..13) runs out over the lava; a flagstone at its edge (16,11)
- *       cracks and the lava swallows it. Hang-drop from the catwalk's south edge to the
- *       shelf (13..18, 14..20) S1 (3.0: a hang-drop is safe, walking off costs a life), walk
- *       off one storey to the casting floor: two lava channels (x 21, x 27) crossed by
- *       2-wide iron bridges (y 23..24). No jumps yet. C1 (32,25).
- *   4.2 The Bellows (S0, y 29..32). Vents in the south lane (33,31) (35,31) that you walk
- *       beside (note, charred bones); one lane with vents in alternate cells (38,31) (40,31),
- *       0.9 s of flame every 2.4 s; the 4x3 A/B checkerboard (42..45, 30..32) puffing
- *       0.6 s, which leaves a 0.5 s window per hop. Potion (47,31).
- *   4.3 Chain Lifts. Lift A, a pillar (47,22), S0 -> S3 and back every 14.4 s. C2 (45,21).
- *       The lever (38,20) raises lift B (37,19) out of the lava to S3; a standing jump from
- *       the balcony (37,21) over one cell of lava onto B; B onto the east gallery
- *       (37, 6..18) S3. Neither lift can crush: both rise in open air.
+ *   4.1 The Glow. Start in the Forge Gate (5,12) S3. A barred window (7..8, 11) looks into
+ *       the ore chute and its hopper: boulders rumble down and drop in (4.5, shown first).
+ *       The catwalk (13..18, 12..13) runs out over the lava; passing (14,12) cracks a
+ *       flagstone at its edge (16,11) (g.crumble) and the lava swallows it. A hint at (15,13)
+ *       teaches the hang-drop from the catwalk's south edge to the shelf (13..18, 14..20) S1
+ *       (3.0: a hang-drop is safe, walking off costs a life); the silver door (12,19) is in
+ *       sight. Walk off one storey to the casting floor, crossing the lava channel x 21 on
+ *       its 2-wide iron bridge (21, 23..24). No jumps yet. C1 (32,25).
+ *   4.2 The Bellows (S0, y 29..32). Two demonstration vents (33,31) (35,31) in dead-end
+ *       pockets of the south lane, walked beside on the north lane (32..36, 30): plaque,
+ *       bellows, charred bones on the first grille. Then the lane of alternate vents (38,31)
+ *       (40,31), 0.9 s of flame every 2.4 s, crossed one per breath; then the 4x3 A/B
+ *       checkerboard (42..45, 30..32) puffing 0.6 s: hop one cell per breath, starting just
+ *       before the next cell goes out (~0.4 s windows; walking straight through burns).
+ *       Potion (47,31).
+ *   4.3 Chain Lifts. Lift A (47,22), S0 <-> S3, waits 2.4 s at each stop, 18 s round.
+ *       C2 (45,21). The lever (38,20) raises lift B (37,19) out of the lava to S3; a standing
+ *       jump from the balcony (37,21) over one cell of lava onto B; B onto the east gallery
+ *       (37, 6..18) S3, where three cracked flags (37, 13..15) fall 0.7 s after you touch
+ *       them: keep walking (if they go, a running jump catches the far lip). Neither lift
+ *       can crush: both rise in open air.
  *   4.4 Slag Stones (S3, y 1..4). Practice over the cooled slag pit (S2, climb out
  *       anywhere): stones (34,2) (30,2) and a sinker (32,2) that bubbles, then lowers you
  *       gently into the pit. Note; the hidden great potion is under the east bank (36,1) S2.
  *       C3 (28,3). Then six stones over lava, x 25 23 21 19 17 15 on y 2: the 3rd (21,2)
  *       and the 5th (17,2) go under (4.8 s cycle: 1.2 s of lava, bubbling for 0.9 s
- *       before). Potion (13,1).
+ *       before; they go under 1.8 s apart). Potion (13,1).
  *   4.5 The Ore Chute. A 2-wide stepped trench (7..8, 2..9), S3 at the foot to S4 at the
- *       top. Boulders roll out of a tunnel (3..6, 1) every 6 s, down the chute and into the
- *       hopper (7..8, 10). In by the east alcove (9,8), dodge in the west alcove (6,5), out
- *       by the east alcove at the top (9,2): alcoves every 3 cells, alternating sides.
- *       Gem at the tunnel's dead end (4,1), between boulders. C4 (10,2).
+ *       top. A boulder rolls out of a dark tunnel (2..6, 1) every 4.8 s (3 u/s), down the
+ *       chute and into the hopper (7..8, 10). In by the east alcove (9,8), dodge in the
+ *       west alcove (6,5), out by the east alcove at the top (9,2): alcoves every 3 cells,
+ *       alternating sides. Walking straight up is too slow; the dodge leaves 1.6 s to set off
+ *       (a sprinter can dash it in a 0.9 s window). Gem in the tunnel (4,1), for a runner
+ *       between boulders. C4 (10,2).
  *   4.6 The Great Anvil. The flame causeway (15..22, 7) S4 over the lava, vents (16,7)
- *       (18,7) (20,7); the anvil lift (23,7) S4 -> S1 onto the plaza (24..30, 6..8), C5
- *       (25,7); the hammer house (26..28, 9..13) with the crucible glowing on its roof; two
- *       hammers (27,11) (27,13) 1.8 s apart with a safe cell between; C6 (27,14); the Silver
- *       Key on the Great Anvil (25,15). From the anvil yard (24..30, 14..16) leap one storey down over
- *       two lava cells to the casting floor, go back west, climb onto the shelf, open the
- *       silver door (12,19) and ride the Vizier's lift (11,18) S1 -> S5 (19.2 s), looking
- *       out through the slot (12, 16..18) over the whole Forge, to the exit (9..10, 18).
- *       Gem on the slot's ledge (12,16), for stepping off the lift mid-ride.
+ *       (18,7) (20,7); the anvil lift (23,7) S4 <-> S1 (18 s, waiting at the causeway when
+ *       the level starts) onto the plaza (24..30, 6..8), C5 (25,7); the hammer house
+ *       (26..28, 9..13) with the crucible glowing on its roof; two hammers (27,11) (27,13)
+ *       1.8 s apart with a safe cell between; the anvil yard (24..30, 14..16), C6 (29,15),
+ *       the Silver Key on the Great Anvil (25,15). Leap south from the yard one storey down
+ *       over two lava cells to the casting floor (the landing, x 24..30 y 19..22, is clear:
+ *       the channel x 27 now starts at y 23, bridged at (27, 24..25)), go back west, climb
+ *       onto the shelf, open the silver door (12,19): Qasim's order to the forge lies in his
+ *       chamber. Ride his lift (11,18) S1 -> S5 (24 s round), looking out through the slot
+ *       (12, 16..18) over the whole Forge, to the exit (9..10, 18), marked for the whole
+ *       cavern by a torch high beside the shaft top. Gem on the slot's ledge (12,16), for
+ *       stepping off the lift mid-ride.
  *
  * ROUTE (about 180 s of perfect play, lift waits included): gate, catwalk, hang-drop,
  * casting floor, C1, bellows, lift A, C2, lever, jump to B, east gallery, practice pit, C3,
  * six stones, passage, ore chute, C4, causeway, anvil lift, C5, hammers, C6, key, leap,
  * casting floor, shelf, silver door, the Vizier's lift, exit.
  *
- * Rock is typed by what it faces: '|' veined cavern rock (emissive: the cavern reads at
- * any distance), '`' and '"' rock lit by the lava at its foot (S0 and the slag pools),
- * '*' masonry, '%' sandstone round the Vizier's rooms.
+ * LIGHT: falloff 0.5 (a vast cavern). The lava (30) is the brightest thing; the air over it
+ * is 24, the cavern floors 21..23; the halls stay dark (15). Rock is typed by what it faces:
+ * '|' veined cavern rock, '`' and '"' emissive rock lit by the lava at its foot (S0 and the
+ * slag pools), '*' masonry, '%' sandstone round the Vizier's rooms.
  */
 (function (R) {
   'use strict';
@@ -81,25 +94,25 @@
       }
     },
   });
-  // natural cavern rock, veined with lava: emissive, so the cavern reads at any distance
-  // (the rock itself is dark; only the veins are bright)
+  // natural cavern rock, veined with lava. Lit like any wall (the level's low falloff keeps
+  // the cavern readable across the lake); the veins are painted hot so they still glint.
   T('FORGE_ROCK', {
-    emissive: true,
     gen(p, c) {
-      TH.voronoi(p, c, { n: 6, base: '#3c1e16', edge: '#0c0404', edgeW: 2.0, vary: 0.35, grain: 0.25, noise: 0.06 });
+      TH.voronoi(p, c, { n: 6, base: '#44221a', edge: '#0c0404', edgeW: 2.0, vary: 0.35, grain: 0.25, noise: 0.06 });
       const r = c.rng;
       for (let i = 0; i < 2; i++) {
         let x = r() * 64, y = r() * 64, a = Math.PI / 2 + (r() - 0.5);
         for (let k = 0; k < 30; k++) {
-          p.rect(x, y, 2, 2, k % 7 === 0 ? '#ffb040' : '#d8500c'); p.px(x + 2, y, '#6a1804');
+          p.rect(x, y, 2, 2, k % 7 === 0 ? '#ffe070' : '#ff6a18'); p.px(x + 2, y, '#8a2004');
           a += (r() - 0.5) * 0.7; x += Math.cos(a) * 1.5; y += Math.sin(a) * 1.5;
         }
       }
     },
   });
-  // rock lit by the lava it stands in (emissive, 2 units tall). Walls are world-aligned, so the
-  // lava line sits at a fixed row: row 32 for the lava at z -0.5 (and stones' sides pegged 0.5
-  // above it), row 0 for the slag pools at z 4.0.
+  // rock lit by the lava it stands in (emissive, 2 units tall: 128 rows). Rock faces are pegged
+  // to the bottom of their storey (a face below the lowest storey to z 0), so the lava line sits
+  // at row (storey z + 2 - lava z) * 64 mod 128: row 32 for the lake at z -0.5 (S0 band, pegged
+  // at 0), row 64 for the slag pools at z 4.0 (their '"' rock is in the S2 band, pegged at 3.0).
   const hotRock = row0 => ({
     h: 128, emissive: true,
     gen(p, c) {
@@ -121,7 +134,7 @@
     },
   });
   T('FORGE_HOT0', hotRock(32));
-  T('FORGE_HOT3', hotRock(0));
+  T('FORGE_HOT3', hotRock(64));
   // the casting floor: packed foundry sand with iron plates and slag spatter
   T('FORGE_CAST', {
     gen(p, c) {
@@ -261,19 +274,17 @@
   // ================================================================ legend helpers
   const ent = HG.ent;
   const torch = (dx, dy) => ent({ type: 'deco', sprite: 'TORCH', z: 0.55, radius: 0.1, dx, dy }, { light: 21, anim: { type: 'flicker', depth: 3 } });
-  const say = (text, extra = {}) => HG.trigger(text, Object.assign({ radius: 0.7, time: 6 }, extra));
+  // a hint placed by coordinate (level.ents): shown once, when you walk over it
+  const say = (x, y, z, text, extra = {}) => Object.assign({ x, y, z, type: 'trigger', text, radius: 0.7, time: 6 }, extra);
   const deco = (sprite, extra = {}) => ent(Object.assign({ type: 'deco', sprite }, extra));
   // the warning glow on a sinking stone: bubbles for the 0.9 s before it goes under (harmless: height 0)
   const glow = phase => ({ type: 'trap', spriteOn: 'FORGE_GLOW', spriteOff: null, period: 4.8, phase: (phase + 0.1875) % 1, duty: 0.1875, height: 0, radius: -1, brightOn: true, sound: 'sizzle' });
   const sink = phase => ({ base: 's', anim: { type: 'cycle', period: 4.8, phase, duty: 0.25, hazard: 'lava', texOn: 'FORGE_MOLTEN', texOff: 'FORGE_CRUST' }, ent: glow(phase) });
   const vent = (phase, duty = 0.375) => ({ base: 'F', ftex: 'FORGE_VENT', light: 17, label: null, ent: { tpl: 'flame', phase, duty } });
   const hammer = phase => ({ base: 'f', ctex: 'CRUSHER', up: 'FORGE_IRON', light: 17, anim: { type: 'crusher', period: 3.6, phase, msg: 'The great hammer falls on you!' } });
-  const HINTS = {
-    '17,13': 'The ledge below is two storeys down - too far to drop. Hold C, step to the edge, press forward again to hang, then let go.',
-    '13,7': 'The causeway to the Great Anvil. The vents breathe fire on the beat - cross between breaths.',
-    '27,15': 'The Silver Key lies on the Great Anvil. The way back is a leap: the casting floor is one storey down, two strides across the lava. Take a run along the yard.',
-  };
-  const FORGE = { music: 'forge', ftex: 'FORGE_FLOOR', ctex: 'FORGE_CEIL', wall: 'FORGE_BASALT', low: 'FORGE_BASALT', up: 'FORGE_BASALT' };
+  // the automatic lifts: they wait 2.4 s at each stop and never move faster than ~1 u/s
+  const lift = (amp, period, phase) => ({ ftex: 'FORGE_LIFT', low: 'FORGE_IRON', anim: { type: 'lift', amp, period, phase, dwell: 2.4 } });
+  const FORGE = { ftex: 'FORGE_FLOOR', ctex: 'FORGE_CEIL', wall: 'FORGE_BASALT', low: 'FORGE_BASALT', up: 'FORGE_BASALT' };
 
   R.defineLevel({
     id: 'forge', order: 4,
@@ -281,6 +292,7 @@
     subtitle: 'Where the Vizier casts his chains, the floor itself is molten.',
     width: 50, height: 34,
     music: 'forge',
+    falloff: 0.5,                                               // a vast cavern: light carries across the lake
     startMessage: 'Heat rolls up from below. Somewhere in this forge the Silver Key lies on the Great Anvil.',
     legend: {
       // ---- rock and floors
@@ -290,11 +302,11 @@
       '"': { solid: true, wall: 'FORGE_HOT3' },
       'f': Object.assign({ base: '.', light: 15 }, FORGE),
       'F': { base: 'f', cl: 2.75 },
-      'h': { base: 'f', ftex: 'FORGE_CAST', low: 'FORGE_HOT0', light: 26, label: 'The Casting Floor' },
-      'e': { base: 'f', light: 25 },
-      'n': { base: 'f', light: 26, label: 'The Great Anvil' },
-      '-': { base: 'f', ftex: 'FORGE_GRATE', low: 'FORGE_IRON', light: 25 },
-      '=': { base: 'f', light: 25, label: 'The Flame Causeway' },
+      'h': { base: 'f', ftex: 'FORGE_CAST', low: 'FORGE_HOT0', light: 22, label: 'The Casting Floor' },
+      'e': { base: 'f', light: 21 },
+      'n': { base: 'f', light: 22, label: 'The Great Anvil' },
+      '-': { base: 'f', ftex: 'FORGE_GRATE', low: 'FORGE_IRON', light: 21 },
+      '=': { base: 'f', light: 21, label: 'The Flame Causeway' },
       'I': { base: 'h', ftex: 'FORGE_IRON', low: 'FORGE_IRON', label: null },
       'r': { base: 'f', ftex: 'SAND_FLOOR', wall: 'SANDSTONE', light: 16 },
       'K': { base: 'f', ftex: 'CARPET_PERSIAN', cl: 2.75, wall: 'SANDSTONE', light: 18, label: "The Vizier's Lift" },
@@ -302,7 +314,7 @@
       '>': { base: 'f', label: 'The Bellows' },
       // ---- lava and open air
       'w': { base: 'f', fl: -0.5, cl: 1.25, ftex: 'LAVA', hazard: 'lava', light: 30 },
-      'v': { pit: true, cl: 1.25, ctex: 'FORGE_CEIL', wall: 'FORGE_BASALT', low: 'FORGE_BASALT', up: 'FORGE_BASALT', light: 30 },
+      'v': { pit: true, cl: 1.25, ctex: 'FORGE_CEIL', wall: 'FORGE_BASALT', low: 'FORGE_BASALT', up: 'FORGE_BASALT', light: 24 },
       'u': { base: 'v', low: 'FORGE_IRON' },
       'p': { base: 'v', cl: 1.5, light: 14 },
       '[': { base: 'w', fl: 0.5, label: null },                 // the crucible on the hammer house: molten metal at 3.5
@@ -316,14 +328,15 @@
       't': { base: '0', cl: 1.5 },
       'D': { base: 'f', cl: 1.5, light: 7, label: null },
       // ---- slag stones
-      's': { base: 'e', ftex: 'FORGE_CRUST', low: 'FORGE_HOT0', light: 27 },
-      'S': sink(0),
-      'Z': sink(0.5),
+      's': { base: 'e', ftex: 'FORGE_CRUST', low: 'FORGE_HOT0', light: 23 },
+      // the sinkers go under 1.8 s apart; both are safe for the first 1.8 s of level time
+      'S': sink(0.25),
+      'Z': sink(0.625),
       'V': { base: 's', anim: { type: 'bob', period: 4.8, amp: -1.5, phase: 0 }, ent: glow(0) },
       // ---- lifts
-      'A': { base: 'f', ftex: 'FORGE_LIFT', low: 'FORGE_IRON', light: 18, anim: { type: 'bob', period: 14.4, amp: 4.5, phase: 0 }, label: 'The Chain Lifts' },
-      'N': { base: 'e', ftex: 'FORGE_LIFT', low: 'FORGE_IRON', anim: { type: 'bob', period: 14.4, amp: 4.5, phase: 0.5 } },
-      'X': { base: 'K', ftex: 'FORGE_LIFT', low: 'FORGE_IRON', cl: 1.25, anim: { type: 'bob', period: 19.2, amp: 6.0, phase: 0 } },
+      'A': Object.assign({ base: 'f', light: 18, label: 'The Chain Lifts' }, lift(4.5, 18.0, 0)),     // S0 <-> S3
+      'N': Object.assign({ base: 'e' }, lift(4.5, 18.0, 0.5)),                                        // S1 <-> S4, waits at the top first
+      'X': Object.assign({ base: 'K', cl: 1.25 }, lift(6.0, 24.0, 0)),                                // S1 <-> S5
       'b': { base: 'e', ftex: 'FORGE_CRUST', low: 'FORGE_HOT0', tag: 'liftB' },
       'l': HG.lever({ lift: { tag: 'liftB', to: 4.5, speed: 1.0 }, msg: 'Chains clatter inside the wall. A pillar of stone rises out of the lava!' }),
       // ---- hazards
@@ -333,23 +346,24 @@
       'W': vent(0.5, 0.25),
       'H': hammer(0),
       'J': hammer(0.5),
-      'q': { base: '-', loose: { delay: 0.7 }, ftex: 'LOOSE_FLAT', tag: 'flag' },
-      '&': { base: 'D', ent: { tpl: 'boulder', path: [[0, 0], [4.5, 0], [4.5, 9]], speed: 2.25, phase: 0, msg: 'An ore boulder flattens you!' } },
+      'q': { base: '-', loose: { delay: 0.7 }, ftex: 'LOOSE_FLAT', tag: 'flag' },     // the flagstone that falls at the start
+      'j': { base: '-', loose: {}, ftex: 'LOOSE_FLAT' },                           // cracked flags on the east gallery: keep walking
       // ---- doors, keys, gates
       '@': { base: 'r', start: 'E', label: 'The Forge Gate' },
-      'g': HG.gate('window', Object.assign({ door: { msg: 'Iron bars. Beyond them the ore chute empties into a pit of fire.' }, light: 18 }, FORGE)),
+      'g': HG.gate('window', Object.assign({ door: { msg: 'Iron bars. Beyond them the ore chute empties into a pit of fire.', axis: 'y' }, light: 18 }, FORGE)),
       'd': HG.keyDoor('key_silver', Object.assign({ door: { tex: 'FORGE_DOOR_SILVER', msg: 'A door banded with silver. It will open for the Silver Key.', openMsg: 'The Silver Key turns. Behind the door, a lift waits.' } }, FORGE, { ftex: 'CARPET_PERSIAN', light: 18 })),
-      'k': ent([
-        { type: 'deco', sprite: 'FORGE_ANVIL', solid: true, radius: 0.4, height: 0.8 },
-        { type: 'item', item: 'key_silver', z: 0.45, dy: -0.3 },
+      'k': ent([                                                // the anvil stands at the back of its cell: you can walk up to the key
+        { type: 'deco', sprite: 'FORGE_ANVIL', solid: true, radius: 0.3, height: 0.8, dy: 0.35 },
+        { type: 'item', item: 'key_silver', z: 0.66, dy: 0.25 },    // lying on its face
       ], { light: 22 }),
       // ---- messages and notes
-      'a': Object.assign(say('A flagstone at the edge of the catwalk cracks...', { script: 'flagDrop', radius: 0.8, time: 3 }), { label: 'The Glow' }),
-      'j': say(null, { script: 'hint' }),                       // a hint; the text depends on where it is (HINTS)
-      'M': HG.note('CHALKED ON THE FORGE GATE', "The forge of Qasim.\n\nHis Silver Key lies on the Great Anvil, past the hammers.\n\nThe silver door on the ledge below the catwalk hides his own lift up to the tower."),
+      'a': HG.trigger('A flagstone at the edge of the catwalk cracks...', { script: 'flagDrop', radius: 0.8, time: 3 }, { label: 'The Glow' }),
+      'M': HG.note('CHALKED ON THE FORGE GATE', 'The forge of Qasim.\n\nHis Silver Key lies on the Great Anvil, past the hammers.'),
       'R': HG.note('A SOOTY PLAQUE', 'THE BELLOWS\n\nWhere a grille glows, fire follows.\nWalk beside the grilles. Where you must cross one, wait for its breath to pass.'),
-      'U': Object.assign(HG.note('SCRATCHED INTO THE SLAG', 'The stones sink and rise again.\n\nWhen a stone bubbles and glows, it is going under.\nNever wait on a glowing stone.'), { label: 'The Slag Pools' }),
+      'U': HG.note('SCRATCHED INTO THE SLAG', 'The stones sink and rise again.\n\nWhen a stone bubbles and glows, it is going under.\nNever wait on a glowing stone.', {}, { label: 'The Slag Pools' }),
       // ---- decoration
+      // wall torches keep legend characters: a torch also lights its cell and makes it flicker,
+      // which an entity placed by level.ents cannot do (ents carry only the high landmark torch)
       '(': torch(-0.4, 0), ')': torch(0.4, 0), '{': torch(0, -0.4), '}': torch(0, 0.4),
       'm': { base: 'v', ent: { type: 'deco', sprite: 'FORGE_CHAIN', hang: true } },
       '<': deco('FORGE_BELLOWS', { solid: true, radius: 0.35 }),
@@ -379,19 +393,19 @@
         '             *****`wwwww```````wwwwwww`           ',
         '             *****`wwwwwwwwwwwwwwwwwww`           ',
         '             *****`wwwwwwwwwwwwwwwwwww`           ',
-        '             *****|hhwhhhhhwhhhhhwwwwb|           ',
-        '            |||||||hhwhhhhhwhhhhhwwwww`           ',
-        '            |hhhhhhhhwhhhhhwhhhhhwwwww`       *** ',
-        '            |hhhhhhhhwhhhhhwhhhhhwwwww`       *A* ',
-        '            |hhhhhhhhIhhhhhIhhhhhwwwww`       *f* ',
+        '             *****|hhwhhhhhhhhhhhwwwwb|           ',
+        '            |||||||hhwhhhhhhhhhhhwwwww`           ',
+        '            |hhhhhhhhwhhhhhhhhhhhwwwww`       *** ',
+        '            |hhhhhhhhwhhhhhhhhhhhwwwww`       *A* ',
+        '            |hhhhhhhhIhhhhhwhhhhhwwwww`       *f* ',
         '            |(hhhhhhhIhhhhhIhhhhhwwwww`       *f* ',
-        '            |hhhhhhhhwhhhhhwhhhhCwwwww`       *f* ',
+        '            |hhhhhhhhwhhhhhIhhhhCwwwww`       *f* ',
         '            |hhhhhhhhwhhhhhwhhhhhwwwww`       *)* ',
         '            |h}hhhhhhwhh}hGwh$h}hwwwww`       *f* ',
         '            |||||||||`|||||`|||>|`````|       *f* ',
         '                              *f******   ******f* ',
         '                              *FRFFFF*****iWiW*f* ',
-        '                              *<<y$yFFYFYFWiWiFP* ',
+        '                              *<<y*yFFYFYFWiWiFP* ',
         '                              ************iWiW*** ',
         '                                         ******   ',
       ] },
@@ -410,8 +424,8 @@
         '      ****  |vvvvvvvvvvvvv*H*vvvvvvvvv|           ',
         '            |vvvvvvvvvvvvv*f*vvvvvvvvv|           ',
         '            |vvvvvvvvvvvvv*J*vvvvvvvvv|           ',
-        '            |eeeeeevvvvvnn{C{nnvvvvvvv|           ',
-        '            |eeeeeevvvvvnknjnnnvvvvvvv|           ',
+        '            |eeeeeevvvvvnn{n{nnvvvvvvv|           ',
+        '            |eeeeeevvvvvnknnnCnvvvvvvv|           ',
         '            |(eeeeevvvvvPnnnnnnvvvvvvv|           ',
         '          %%%eeeeeevvvvvvvvvvvvvvvvvvv|           ',
         '        %%%X%eeeeeevvvvvvvvvvvvvvvvvvv|           ',
@@ -479,11 +493,11 @@
         '      *000ff|vvvvvvvvvvvvvvvvvvvvvvvv)|           ',
         '      *0z***|vvvvvvvvvvvvvvvvvvvvvvvv-|           ',
         '      *uu*  |vvvvvvvvvvvvvvvvvvvvvvvv-|           ',
-        ' %%%%%%g****|vvvqvvvvvvvvvvvvvvvvvvvv-|           ',
+        ' %%%%%%gg***|vvvqvvvvvvvvvvvvvvvvvvvv-|           ',
         ' %]r{@rfffff{-a----vvvvvvvvvvvvvvvvvv)|           ',
-        ' %rrrrrMff}ff----j-vvvvvvvvvvvvvvvvvv-|           ',
-        ' %rrrrr*****|vvvvvvvvvvvvvvvvvvvvvvvv-|           ',
-        ' %]]}rr*   *|vvvvvvvvvvvvvvvvvvvvvvvv-|           ',
+        ' %rrrrrMff}ff------vvvvvvvvvvvvvvvvvvj|           ',
+        ' %rrrrr*****|vvvvvvvvvvvvvvvvvvvvvvvvj|           ',
+        ' %]]}rr*   *|vvvvvvvvvvvvvvvvvvvvvvvvj|           ',
         ' %%%%%%*   *Gvvvvvvvvvvvvvvvvvvvvvvvv)|           ',
         '          **evvvvvvvvvvvvvvvvvvvvvvvv-|           ',
         '          *u}vvvvvvvvvvvvvvvvvvvvvvvv-|           ',
@@ -505,13 +519,13 @@
       ] },
       { z: 6, map: [
         '  ********  |||||||||||||||||||||||||||           ',
-        '  *&GDDtt***|vvvvvvvvvvvvvvvvvvvvvvvvv|           ',
+        ' *DDGDDtt***|vvvvvvvvvvvvvvvvvvvvvvvvv|           ',
         '  *****tttCf|vvvvvvvvvvvvvvvvvvvvvvvvv|           ',
         '      *pp**f|vvvvvvvvvvvvvvvvvvvvvvvvv|           ',
         '     **pp**f|vvvvvvvvvvvvvvvvvvvvvvvvv|           ',
         '     *ppp**(|||||||||||||||||||||||||||           ',
         '     **pp**f|==vvvvvvvvvvvvvvvvvvvvvvv|           ',
-        '      *pp**ffj==y=Y=y==uvvvvvvvvvvvvvv|           ',
+        '      *pp**ff===y=Y=y==uvvvvvvvvvvvvvv|           ',
         '      *pp***|==vvvvvvvvvvvvvvvvvvvvvvv|           ',
         '      *pp***|vvvvvvvvvvvvvvvvvvvvvvvvv|           ',
         '      ****  |vvvvvvvvvvvvvvvvvvvvvvvvv|           ',
@@ -576,20 +590,30 @@
         '                                                  ',
       ] },
     ],
+    ents: [
+      // 4.1 the hang-drop hint: drop from x 15, well away from the shelf's east edge over the lava
+      say(15, 13, 4.5, 'The ledge below is two storeys down - too far to drop. Hold C, step to the edge, press forward again to hang, then let go.'),
+      // 4.2 the demonstration vent: charred bones on its grille, between the bellows and the wall
+      { x: 33, y: 31, z: 0, type: 'deco', sprite: 'BONES', dx: 0.3 },
+      // 4.3 the east gallery: three cracked flags (37, 13..15) between its torches; one already lies in the lava below
+      { x: 37, y: 14, z: 0, type: 'deco', sprite: 'RUBBLE' },
+      // 4.5 the ore boulder: out of the dark tunnel's end (2.6,1.5), east to the chute (8,1.5), down it
+      // and into the hopper at (8,10.5): 14.4 u at 3 u/s, one boulder every 4.8 s
+      { x: 2, y: 1, z: 6, tpl: 'boulder', dx: 0.1, path: [[0, 0], [5.4, 0], [5.4, 9]], speed: 3.0, phase: 0, msg: 'An ore boulder flattens you!' },
+      // 4.6 the causeway, and the way back from the Great Anvil
+      say(13, 7, 6, 'The causeway to the Great Anvil. The vents breathe fire on the beat - cross between breaths.'),
+      say(27, 15, 1.5, 'The way back is a leap south: the casting floor is one storey down, across two strides of lava.'),
+      // the Vizier's chamber: his order to the forge, left by his lift
+      { x: 9, y: 19, z: 1.5, type: 'note', dx: -0.3, title: 'SEALED WITH BLACK WAX', text: 'To the Master of the Forge.\n\nCast the new chains before the last grain falls. At dawn the Sultan drinks his cup, and by noon his loyal men will need them.\n\nThe first link is for the thief who cut my purse.\n\n- Qasim' },
+      // the way out: a torch high on the cavern wall beside the top of the Vizier's shaft (S5), seen from the catwalk
+      { x: 12, y: 18, z: 4.5, type: 'deco', sprite: 'TORCH', zAbs: 8.05, dy: 0.4, radius: 0.1 },
+    ],
     scripts: {
-      /** Hints, by the cell of the trigger that fired. */
-      hint(g, ctx) {
-        const e = ctx.entity, text = HINTS[`${Math.floor(e.x)},${Math.floor(e.y)}`];
-        if (text) g.msg(text, 6);
-      },
-      /** The first thing you see: a flagstone falls from the catwalk and the lava swallows it. */
+      /** The first thing you see: a flagstone at the catwalk's edge cracks and falls into the lava. */
       flagDrop(g) {
-        const s = g.spansTagged('flag')[0];
-        if (!s || !s.loose || s.loose.state !== 'idle') return;
-        g.triggerLoose(s);
+        g.crumble('flag', 16.5, 11.5, 3.5, 0.7);      // a no-op once the flag has gone
         g.after(2.0, gg => {
-          for (const e of gg.ents) if (e.type === 'fallingTile' && Math.floor(e.x) === s.cell.x && Math.floor(e.y) === s.cell.y) e.gone = true;
-          gg.sound('sizzle', s.cell.x + 0.5, s.cell.y + 0.5, 1, 0);
+          gg.sound('sizzle', 16.5, 11.5, 1, 0);
           gg.msg('...and the lava swallows it with a hiss.', 3);
         });
       },

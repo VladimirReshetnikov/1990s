@@ -146,7 +146,7 @@ function solve(g, from = null, opts = {}) {
   const inv = new Set(), open = new Set(), items = new Set(), used = new Set(), log = [];
   const lifted = new Map(); // span -> fl after a lift
   const fl = s => (lifted.has(s) ? lifted.get(s) : s.baseFl);
-  const moving = s => s.anim && (s.anim.type === 'bob' || s.anim.type === 'lift');
+  const moving = s => !!(s.anim && (s.anim.type === 'bob' || s.anim.type === 'lift'));
   const heights = s => { if (!moving(s)) return [fl(s)]; const a = s.anim.amp ?? (s.anim.type === 'lift' ? 1.5 : 1); return [s.baseFl, s.baseFl + a / 2, s.baseFl + a]; };
   const knocked = new Map(); // span -> its ceiling after the loose flag above it was knocked down
   const gone = new Set();    // loose flags knocked down
@@ -265,6 +265,8 @@ function solve(g, from = null, opts = {}) {
       const careful = spiky.has(t) || spiky.has(e.from);
       if (careful && e.kind !== 'walk' && e.kind !== 'step') return;
       if (careful) { e.careful = true; e.cost = 1 / cfg.carefulSpeed; }
+      // boarding or leaving a lift or a bobbing floor: wait half its period on average
+      if (moving(t) !== moving(e.from)) e.cost += ((moving(t) ? t : e.from).anim.period || 4.8) / 2;
       if (rec) { e.round = rec.round; if (rec.edges) rec.edges.push(e); }
       const nd = d0 + e.cost;
       if (nd < (dist.has(t) ? dist.get(t) : Infinity)) { dist.set(t, nd); pred.set(t, e); heap.push([nd, t]); }

@@ -131,7 +131,7 @@
           chars[y * W + x] = ch;
         });
       });
-      return { z: L.z, legend, chars, defaults: U.merge(defaults, L.defaults), index: k };
+      return { z: L.z, legend, chars, defaults: U.merge(defaults, L.defaults), index: k, lightMin: L.lightMin };
     });
     for (let k = 1; k < layers.length; k++) if (!(layers[k].z > layers[k - 1].z)) throw new Error(`Level "${lv.id}": layer z values must increase`);
     const bandZ = layers.map(l => l.z);
@@ -174,6 +174,7 @@
           for (const k of ['ent', 'start', 'door', 'loose', 'plate', 'exit', 'use', 'lever', 'anim', 'hazard', 'tag', 'enter', 'secret', 'checkpoint', 'forbid']) delete b[k];
           t = U.merge(L.defaults, b, own);
         } else t = U.merge(L.defaults, resolveTemplate(L.legend, ch, where));
+        if (L.lightMin !== undefined && !t.solid) t = Object.assign({}, t, { light: Math.max(t.light ?? 0, L.lightMin) });
         const info = {
           solid: !!t.solid, wall: texId(t.wall), low: texId(t.low ?? t.wall), up: texId(t.up ?? t.wall),
           use: t.use || null, tag: t.tag || null, span: null, ch,
@@ -235,6 +236,7 @@
       const s = R.spanAt(c, (e.z ?? 0) + 0.02) || R.spanBelow(c, (e.z ?? 0) + 0.02);
       if (!s) throw new Error(`${where}: no floor there`);
       const spec = Object.assign({}, e); delete spec.z;
+      if (e.above !== undefined) { spec.z = e.above; delete spec.above; }   // height above its floor (a deco's z)
       world.spawns.push(Object.assign(spec, { x: Math.floor(e.x) + 0.5 + (e.dx || 0), y: Math.floor(e.y) + 0.5 + (e.dy || 0), z0: s.fl, layer: s.band, cellX: c.x, cellY: c.y }));
     }
     // rock never rises above the highest roof: above it, open sky spans see the sky
