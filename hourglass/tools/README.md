@@ -149,14 +149,15 @@ waiting 1.20 s`). On the route, a run of walk / step edges through cells a
 hazard can reach (found by running the level with nobody in it and recording
 where every hazard goes) is taken as one move to the next safe cell: first in
 one go after some wait, walking or running; failing that, the replay PLANS it
-like a careful player — from cell centre to cell centre, waiting before each
-step, with backtracking (`planned: 3.40 s of waiting in 4 pauses`). Each
-planned step runs in a fresh world wound to that moment of level time (3 s of
-pre-roll with nobody there puts darts and rocks in flight). A `FAIL through N
-hazard cells` means no such plan exists: the corridor needs a safe pocket, a
-slower hazard, or a wider gap in its timing. Planning is slow on long
-gauntlets (minutes); `--nowait` turns all waiting off and `--calm` removes the
-hazards.
+like a careful player: a search over (cell, moment) through the corridor and
+the pockets within 2 cells of it, each move a 0.3 s wait or a walk / run to a
+neighbouring cell centre, earliest arrival first (`planned: 9.40 s including
+3.30 s of waiting`). Each move runs in a fresh world wound to that moment of
+level time (2.5 s of pre-roll with nobody there when darts are about). The
+search stops after 1000 trials: a `FAIL through N hazard cells` means no plan
+was found in that budget — on a long gauntlet that can be the planner's limit,
+so prove the crossing with a real-physics script, or give the corridor safe
+pockets. `--nowait` turns all waiting off and `--calm` removes the hazards.
 
 ### Reading a failure
 

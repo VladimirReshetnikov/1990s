@@ -45,12 +45,13 @@
  * waits for the gap (--nowait turns this off). On the route, a run of walk /
  * step edges through cells a hazard can reach (found by running the level for
  * a while and recording where every blade, dart, rock, flame, boulder and
- * crusher goes) is planned like a careful player: from cell centre to cell
- * centre, waiting 0..waitMax s before each step (walking, or running), with
- * backtracking. Hazards are functions of level time, so a step is tried in a
- * fresh world wound to that moment (3 s of pre-roll with nobody there puts
- * darts and rocks in flight). The plan passes when it reaches the next safe
- * cell alive and unhurt; its total waiting is reported.
+ * crusher goes) is planned like a careful player: a search over (cell, moment)
+ * through the corridor AND the pockets beside it (alcoves within 2 cells), where
+ * each move is "wait 0.3 s here" or "walk / run to a neighbouring cell centre",
+ * earliest arrival first. Hazards are functions of level time, so every move is
+ * tried in a fresh world wound to that moment (with 2.5 s of pre-roll with
+ * nobody there when darts are about, to put them in flight). The plan passes
+ * when it reaches the next safe cell alive and unhurt; its waiting is reported.
  */
 'use strict';
 const V = require('./verify.js');
@@ -228,14 +229,14 @@ function dangerMap(lv, secs) {
  * player at rest on edge e's source centre; wait `delay`, then walk (or run) to
  * the target centre. Returns { ok, T } with T the arrival time, or { ok: false }.
  */
-function timedStep(lv, rnd, e, T, delay, run) {
+function timedStep(lv, rnd, e, T, delay, run, preRoll = 3) {
   const g = V.makeGame(lv, {});
   applyState(g, rnd.state);
   const from = spanOf(g, sid(e.from)), to = spanOf(g, sid(e.to));
   for (const u of (rnd.gone || []).map(q => spanOf(g, sid(q)))) if (u && u.loose) g.dropFloor(u, true);
   for (const c of g.world.cells) for (const sp of c.spans) sp.exit = false;
   const p = g.player;
-  const pre = Math.min(3, T);
+  const pre = Math.min(preRoll, T);
   g.time = T - pre;
   p.alive = false;
   for (let t = 0; t < pre - 1e-9; t += DT) g.update(DT, null);
@@ -245,6 +246,7 @@ function timedStep(lv, rnd, e, T, delay, run) {
   Object.assign(p, { invuln: 0, jumpBuf: -1, snapUntil: -1, prevFwd: false, edgeStop: false, lastGround: g.time });
   const life0 = p.life, careful = !!e.careful;
   for (let t = 0; t < delay; t += DT) { g.update(DT, { careful: true }); if (!p.alive || p.life < life0) return { ok: false }; }
+  if (from === to) return { ok: true, T: g.time };                 // a pure wait
   const tx = to.cell.x + 0.5, ty = to.cell.y + 0.5;
   for (let t = 0; t < 4; t += DT) {
     p.ang = Math.atan2(ty - p.y, tx - p.x);
@@ -283,6 +285,51 @@ function planSegment(lv, rnd, edges, T0, waitMax, budget = 1500) {
   }
   const ok = stage(0, T0);
   return ok ? { ok, waits, trials } : { ok: false, trials };
+}
+
+/**
+ * Time-expanded plan through a hazard corridor: states (span, moment); moves
+ * are a 0.3 s wait or a walk/run to a neighbouring span (the round's walk/step
+ * edges, within 2 cells of the corridor: side pockets count). Earliest arrival
+ * first. Returns { ok, secs, waited, trials } or { ok: false, trials }.
+ */
+function planCorridor(lv, rnd, seg, T0, horizon, budget = 1000) {
+  const goal = seg[seg.length - 1].to, start = seg[0].from;
+  const near = new Set(), cells = seg.flatMap(e => [e.from.cell, e.to.cell]);
+  for (const c of cells) for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (Math.abs(dx) + Math.abs(dy) <= 2) near.add(`${c.x + dx},${c.y + dy}`);
+  const inRegion = sp => near.has(`${sp.cell.x},${sp.cell.y}`);
+  const moves = new Map();   // span -> walk/step edges out of it (within the region)
+  for (const e of rnd.edges || []) {
+    if ((e.kind !== 'walk' && e.kind !== 'step') || !inRegion(e.from) || !inRegion(e.to)) continue;
+    if (!moves.has(e.from)) moves.set(e.from, []);
+    if (!moves.get(e.from).some(q => q.to === e.to)) moves.get(e.from).push(e);
+  }
+  for (const e of seg) { if (!moves.has(e.from)) moves.set(e.from, []); if (!moves.get(e.from).some(q => q.to === e.to)) moves.get(e.from).push(e); }
+  const darts = V.makeGame(lv).ents.some(en => en.type === 'darts');
+  const pre = darts ? 2.5 : 0;
+  const seen = new Set(), heap = [{ T: T0, span: start, waited: 0 }];
+  let trials = 0;
+  while (heap.length && trials < budget) {
+    let bi = 0; for (let i = 1; i < heap.length; i++) if (heap[i].T < heap[bi].T) bi = i;
+    const st = heap[bi]; heap[bi] = heap[heap.length - 1]; heap.pop();
+    const key = `${sid(st.span)}@${Math.round(st.T * 10)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (st.span === goal) return { ok: true, secs: st.T - T0, waited: st.waited, trials };
+    if (st.T - T0 > horizon) continue;
+    // wait here
+    trials++;
+    const w = timedStep(lv, rnd, { from: st.span, to: st.span, z: st.span.baseFl, dir: null }, st.T, 0.3, false, pre);
+    if (w.ok) heap.push({ T: w.T, span: st.span, waited: st.waited + 0.3 });
+    // or step to a neighbour
+    for (const e of moves.get(st.span) || []) for (const run of [false, true]) {
+      if (run && e.careful) continue;
+      trials++;
+      const r = timedStep(lv, rnd, e, st.T, 0, run, pre);
+      if (r.ok) heap.push({ T: r.T, span: e.to, waited: st.waited });
+    }
+  }
+  return { ok: false, trials };
 }
 
 /** Replay a run of walk/step edges as one continuous move (waypoints), after waiting `delay` s. */
@@ -373,18 +420,19 @@ function replayLevel(lv, opts = {}) {
         if (r.ok) { out.ok++; out.waited = (out.waited || 0) + 1; print(`    ok   ${label}  (in one go ${run ? 'running' : 'walking'}, after waiting ${f2(d)} s)`); return; }
       }
     }
-    // start the plan at a few different moments (you arrive at the corridor whenever you arrive)
-    for (const T0 of [10, 11.3]) {
-      const plan = planSegment(lv, rnd, seg, T0, waitMax);
+    // plan it (you arrive at the corridor whenever you arrive: try two moments)
+    let trials = 0;
+    for (const T0 of [10]) {
+      const plan = planCorridor(lv, rnd, seg, T0, Math.max(20, 3 * seg.length + waitMax));
+      trials += plan.trials;
       if (plan.ok) {
-        const wait = plan.waits.reduce((q, w) => q + w.d, 0);
         out.ok++; out.waited = (out.waited || 0) + 1;
-        print(`    ok   ${label}  (planned: ${f2(wait)} s of waiting in ${plan.waits.filter(w => w.d > 0).length} pauses, ${plan.trials} trials)`);
+        print(`    ok   ${label}  (planned: ${f2(plan.secs)} s including ${f2(plan.waited)} s of waiting, ${plan.trials} trials)`);
         return;
       }
     }
     out.fails++; out.routeFails++;
-    print(`    FAIL ${label}  (no plan of waits at cell centres gets through, walking or running)`, true);
+    print(`    FAIL ${label}  (no timed plan found through the corridor and its side pockets in ${trials} trials: prove it with a script, or give it safe pockets)`, true);
   };
   for (const leg of legs) {
     const rnd = res.rounds[leg.round];
